@@ -13,6 +13,7 @@ from github_radar.admin_store import get_admin_chat_id, load_admin, save_admin
 from github_radar.config import Config, load_config
 from github_radar.http_ssl import ssl_verify
 from github_radar.logging_setup import setup_logging
+from github_radar.process_lock import find_radar_main_pids, stop_radar_cycles
 from github_radar.storage import Storage
 from github_radar.telegram_api import TelegramApi
 
@@ -25,13 +26,15 @@ HELP_TEXT = """🏆 Золото GitHub — команды
 /dry — тест без канала (~5–10 мин, результат в лог)
 /today — что вышло в канал сегодня
 /stats — всего опубликовано в базе
-/stop — остановить бот (как Ctrl+C в терминале)
+/stop — остановить только бот
+/stop all — остановить радар (main) + снять lock + остановить бот
 /help или /commands — этот список
 
 Автопостинг: Task Scheduler ~3 раза в сутки (9 постов/день)."""
 
 _cycle_lock = threading.Lock()
 _cycle_running = False
+_cycle_proc: subprocess.Popen[str] | None = None
 
 
 def _parse_command(text: str) -> tuple[str, list[str]]:
@@ -72,7 +75,13 @@ def _build_status(config: Config) -> str:
     finally:
         storage.close()
 
-    running = "🔄 цикл выполняется" if _is_cycle_running(config) else "🟢 готов"
+    main_pids = find_radar_main_pids()
+    if main_pids:
+        running = f"🔄 радар работает (main PID: {', '.join(map(str, main_pids))})"
+    elif _is_cycle_running(config):
+        running = "🔄 цикл выполняется (/run)"
+    else:
+        running = "🟢 готов"
     lines = [
         running,
         "",
@@ -102,7 +111,7 @@ def _build_today(config: Config) -> str:
 
 
 def _run_subprocess(config: Config, dry_run: bool) -> int:
-    global _cycle_running
+    global _cycle_running, _cycle_proc
     lock_file = _cycle_lock_path(config)
     lock_file.parent.mkdir(parents=True, exist_ok=True)
     lock_file.write_text("1", encoding="utf-8")
@@ -112,21 +121,40 @@ def _run_subprocess(config: Config, dry_run: bool) -> int:
         if dry_run:
             cmd.append("--dry-run")
         project_root = Path(__file__).resolve().parent.parent
-        result = subprocess.run(
+        _cycle_proc = subprocess.Popen(
             cmd,
             cwd=project_root,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
             encoding="utf-8",
             errors="replace",
         )
-        if result.returncode != 0:
-            logger.error("Cycle stderr: %s", result.stderr[-2000:])
-        return result.returncode
+        stdout, stderr = _cycle_proc.communicate()
+        code = _cycle_proc.returncode or 0
+        if code != 0:
+            logger.error("Cycle stderr: %s", (stderr or stdout)[-2000:])
+        return code
     finally:
         _cycle_running = False
+        _cycle_proc = None
         if lock_file.exists():
             lock_file.unlink()
+
+
+def _stop_cycle_subprocess() -> bool:
+    global _cycle_proc
+    proc = _cycle_proc
+    if proc is None or proc.poll() is not None:
+        return False
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=3)
+    logger.info("Stopped /run subprocess PID %s", proc.pid)
+    return True
 
 
 def _start_cycle_async(
@@ -163,7 +191,7 @@ def handle_command(
     text: str,
 ) -> bool:
     """Handle one command. Returns True if the bot should shut down."""
-    cmd, _args = _parse_command(text)
+    cmd, args = _parse_command(text)
 
     if cmd == "/start":
         if not _is_admin(config, user_id):
@@ -213,10 +241,34 @@ def handle_command(
             return False
         api.send_message(chat_id, "⏳ Запускаю dry-run (~5–10 мин)...")
         _start_cycle_async(api, chat_id, config, dry_run=True)
-    elif cmd == "/stop":
+    elif cmd in ("/stop", "/stopall"):
+        stop_all = cmd == "/stopall" or (
+            args and args[0].lower() in ("all", "все")
+        )
+        if stop_all:
+            subprocess_stopped = _stop_cycle_subprocess()
+            killed = stop_radar_cycles(config.db_path.parent)
+            parts: list[str] = []
+            if killed:
+                parts.append(f"main: PID {', '.join(map(str, killed))}")
+            elif subprocess_stopped:
+                parts.append("main: /run subprocess")
+            else:
+                parts.append("main: не найден")
+            parts.append("lock: снят")
+            api.send_message(
+                chat_id,
+                "🛑 Остановлен радар и бот.\n\n"
+                + "\n".join(parts)
+                + "\n\nЗапуск снова: Zoloto GitHub.lnk в D:\\treasure",
+            )
+            time.sleep(0.4)
+            return True
         api.send_message(
             chat_id,
             "🛑 Останавливаю бот.\n\n"
+            "Радар (main) продолжит работу, если запущен отдельно.\n"
+            "Остановить всё: /stop all\n\n"
             "Запуск снова: Zoloto GitHub.lnk в папке D:\\treasure",
         )
         time.sleep(0.4)
@@ -293,7 +345,7 @@ def run_admin_bot() -> None:
                         msg.get("from", {}).get("id"),
                         text,
                     ):
-                        logger.info("Shutdown requested via /stop")
+                        logger.info("Shutdown requested via Telegram")
                         break
             except Exception:
                 logger.exception("Admin bot poll error")

@@ -57,7 +57,8 @@ class TelegramApi:
             {"command": "run", "description": "Опубликовать сейчас"},
             {"command": "dry", "description": "Тест без канала"},
             {"command": "today", "description": "Что вышло сегодня"},
-            {"command": "stop", "description": "Остановить бот"},
+            {"command": "stop", "description": "Стоп бот; /stop all — всё"},
+            {"command": "stopall", "description": "Остановить радар и бот"},
             {"command": "help", "description": "Список команд"},
         ]
         data = self._post("setMyCommands", {"commands": commands})
