@@ -13,6 +13,7 @@ import httpx
 from github_radar.config import Config
 from github_radar.http_ssl import ssl_verify
 from github_radar.models import PostDraft
+from github_radar.progress import update
 from github_radar.slides import format_license
 from github_radar.storage import Storage
 
@@ -171,7 +172,15 @@ class Publisher:
 
     def publish_all(self, drafts: list[PostDraft]) -> list[PostDraft]:
         published: list[PostDraft] = []
+        total = len(drafts)
+        update("publish", current=0, total=total, detail="Telegram…")
         for i, draft in enumerate(drafts):
+            update(
+                "publish",
+                current=i + 1,
+                total=total,
+                detail=draft.repo.full_name,
+            )
             if self.publish_one(draft):
                 published.append(draft)
             if i < len(drafts) - 1:

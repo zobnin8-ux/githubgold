@@ -189,4 +189,8 @@ def stop_radar_cycles(data_dir: Path) -> list[int]:
             except OSError:
                 logger.warning("Could not remove lock file %s", lock)
 
+    from github_radar.progress import CycleProgress, progress_path
+
+    CycleProgress(progress_path(data_dir)).reset()
+
     return killed

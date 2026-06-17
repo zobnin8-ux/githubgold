@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from github_radar.config import Config
 from github_radar.hype import compute_freshness, compute_hype, compute_rarity, extract_features
 from github_radar.image_pick import pick_readme_image
+from github_radar.progress import update
 from github_radar.models import Candidate, Repo
 from github_radar.readme_fetch import ReadmeFetcher
 from github_radar.storage import Storage
@@ -104,10 +105,13 @@ def build_funnel(
         len(pre_readme),
         len(scan_pool),
     )
+    update("readme", current=0, total=len(scan_pool), detail="Скан README…")
 
     survivors: list[Candidate] = []
 
     for i, repo in enumerate(scan_pool, start=1):
+        if i % 5 == 0 or i == 1 or i == len(scan_pool):
+            update("readme", current=i, total=len(scan_pool), detail=repo.full_name)
         if i % 10 == 0 or i == len(scan_pool):
             logger.info("README scan progress: %d/%d", i, len(scan_pool))
 

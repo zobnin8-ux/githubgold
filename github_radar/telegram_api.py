@@ -28,9 +28,27 @@ class TelegramApi:
         return data
 
     def send_message(self, chat_id: int | str, text: str) -> bool:
+        return self.send_message_id(chat_id, text) is not None
+
+    def send_message_id(self, chat_id: int | str, text: str) -> Optional[int]:
         data = self._post(
             "sendMessage",
             {"chat_id": chat_id, "text": text, "disable_web_page_preview": False},
+        )
+        if not data.get("ok"):
+            return None
+        result = data.get("result") or {}
+        return result.get("message_id")
+
+    def edit_message(self, chat_id: int | str, message_id: int, text: str) -> bool:
+        data = self._post(
+            "editMessageText",
+            {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": text,
+                "disable_web_page_preview": False,
+            },
         )
         return bool(data.get("ok"))
 

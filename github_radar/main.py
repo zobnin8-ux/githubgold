@@ -13,6 +13,7 @@ from github_radar.http_ssl import ssl_verify
 from github_radar.logging_setup import setup_logging
 from github_radar.prefilter import build_funnel
 from github_radar.process_lock import process_lock
+from github_radar.progress import bind, progress_path, update
 from github_radar.publisher import Publisher
 from github_radar.readme_fetch import ReadmeFetcher
 from github_radar.storage import Storage
@@ -43,6 +44,9 @@ def run_cycle(dry_run: bool = False) -> int:
     config = load_config()
     ssl_verify()
     setup_logging(config.log_path)
+    prog = bind(progress_path(config.db_path.parent))
+    prog.start(dry_run=dry_run)
+
     for key, reason in find_stale_env_vars():
         logger.warning("Ignoring .env key %s (%s)", key, reason)
     logger.info("Starting radar cycle (dry_run=%s)", dry_run)
@@ -60,11 +64,13 @@ def run_cycle(dry_run: bool = False) -> int:
         repos = github.collect_candidates()
         if not repos:
             logger.warning("No repositories collected, exiting")
+            prog.error("Не собрано ни одного репозитория")
             return 0
 
         funnel = build_funnel(repos, config, storage, readme_fetcher, github_source=github)
         if not funnel:
             logger.warning("Empty funnel, nothing to curate")
+            prog.error("Пустая воронка после README")
             return 0
 
         if dry_run:
@@ -72,11 +78,13 @@ def run_cycle(dry_run: bool = False) -> int:
             for c in funnel:
                 _print_candidate(c)
 
+        update("curator", detail="Claude отбирает и пишет тексты…")
         curator = Curator(config)
         drafts = curator.curate(funnel)
 
         if not drafts:
             logger.warning("No posts generated")
+            prog.error("Куратор не сгенерировал посты")
             return 0
 
         if dry_run:
@@ -91,6 +99,7 @@ def run_cycle(dry_run: bool = False) -> int:
                 print("  ---")
                 print(draft.text_ru)
             logger.info("Dry run complete: %d drafts, nothing published", len(drafts))
+            prog.done(published=0, detail=f"Dry-run: {len(drafts)} черновиков")
             return 0
 
         for draft in drafts:
@@ -113,15 +122,18 @@ def run_cycle(dry_run: bool = False) -> int:
                 finally:
                     renderer.close()
 
+            prog.done(published=len(published), detail=f"Постов: {len(published)}")
             return len(published)
         finally:
             publisher.close()
 
     except GitHubRateLimitError as exc:
         logger.error("GitHub rate limit exceeded, aborting cycle: %s", exc)
+        prog.error("GitHub rate limit — подождите и повторите")
         return 1
-    except Exception:
+    except Exception as exc:
         logger.exception("Unexpected error during cycle")
+        prog.error(str(exc)[:200])
         return 1
     finally:
         readme_fetcher.close()

@@ -12,6 +12,7 @@ from selectolax.parser import HTMLParser
 
 from github_radar.http_ssl import ssl_verify
 from github_radar.models import Repo
+from github_radar.progress import update
 
 logger = logging.getLogger("github_radar.github_source")
 
@@ -174,7 +175,8 @@ class GitHubSource:
 
         seen_ids: dict[int, Repo] = {}
 
-        for since in ("daily", "weekly"):
+        for idx, since in enumerate(("daily", "weekly"), start=1):
+            update("trending", current=idx, total=2, detail=since)
             try:
                 for full_name in self.fetch_trending(since=since):
                     repo = self.fetch_repo(full_name)
@@ -191,7 +193,8 @@ class GitHubSource:
         for topic in trend_topics:
             queries.append(f"topic:{topic} pushed:>{date_14d} stars:>{min_s}")
 
-        for query in queries:
+        for i, query in enumerate(queries, start=1):
+            update("search", current=i, total=len(queries), detail=query[:80])
             try:
                 for repo in self.search_repositories(query):
                     if repo.id not in seen_ids:

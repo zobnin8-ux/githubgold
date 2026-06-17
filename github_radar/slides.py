@@ -17,6 +17,7 @@ from github_radar.config import Config
 from github_radar.curator import BODY_MAX, HEADLINE_MAX
 from github_radar.http_ssl import ssl_verify
 from github_radar.models import PostDraft, RarityInfo
+from github_radar.progress import update
 from github_radar.timeutil import slide_folder_parts
 
 logger = logging.getLogger("github_radar.slides")
@@ -349,6 +350,8 @@ class SlideRenderer:
             return []
         paths: list[Path] = []
         formats = [normalize_slide_format(f) for f in (self._config.slide_formats or ["carousel"])]
+        total_steps = max(len(drafts) * len(formats), 1)
+        step = 0
         from playwright.sync_api import sync_playwright
 
         with sync_playwright() as p:
@@ -361,6 +364,13 @@ class SlideRenderer:
                         if fmt not in FORMAT_SIZES:
                             logger.warning("Unknown slide format: %s", fmt)
                             continue
+                        step += 1
+                        update(
+                            "slides",
+                            current=step,
+                            total=total_steps,
+                            detail=f"{draft.repo.name} ({fmt})",
+                        )
                         try:
                             paths.append(
                                 self.render_one(

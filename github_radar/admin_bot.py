@@ -14,6 +14,13 @@ from github_radar.config import Config, load_config
 from github_radar.http_ssl import ssl_verify
 from github_radar.logging_setup import setup_logging
 from github_radar.process_lock import find_radar_main_pids, stop_radar_cycles
+from github_radar.progress import (
+    CycleProgress,
+    format_telegram,
+    is_running,
+    progress_path,
+    read,
+)
 from github_radar.storage import Storage
 from github_radar.telegram_api import TelegramApi
 
@@ -22,8 +29,8 @@ logger = logging.getLogger("github_radar.admin_bot")
 HELP_TEXT = """🏆 Золото GitHub — команды
 
 /status — статус, посты сегодня, режим
-/run — опубликовать сейчас (до POSTS_PER_RUN постов, ~5–10 мин)
-/dry — тест без канала (~5–10 мин, результат в лог)
+/run — опубликовать сейчас (прогресс в этом чате)
+/dry — тест без канала (прогресс в этом чате)
 /today — что вышло в канал сегодня
 /stats — всего опубликовано в базе
 /stop — остановить только бот
@@ -67,6 +74,9 @@ def _is_cycle_running(config: Config) -> bool:
     return _cycle_lock_path(config).exists()
 
 
+_progress_poll_interval = 5.0
+
+
 def _build_status(config: Config) -> str:
     storage = Storage(config.db_path)
     try:
@@ -75,9 +85,14 @@ def _build_status(config: Config) -> str:
     finally:
         storage.close()
 
+    prog_path = progress_path(config.db_path.parent)
+    prog_data = read(prog_path)
+
     main_pids = find_radar_main_pids()
-    if main_pids:
-        running = f"🔄 радар работает (main PID: {', '.join(map(str, main_pids))})"
+    if is_running(prog_path) or main_pids:
+        running = format_telegram(prog_data, title="🔄 Радар")
+        if main_pids:
+            running += f"\n\nPID: {', '.join(map(str, main_pids))}"
     elif _is_cycle_running(config):
         running = "🔄 цикл выполняется (/run)"
     else:
@@ -108,6 +123,25 @@ def _build_today(config: Config) -> str:
         ts = row["published_at"][:16].replace("T", " ")
         lines.append(f"{i}. {row['full_name']}  ({ts})")
     return "\n".join(lines)
+
+
+def _poll_progress_loop(
+    api: TelegramApi,
+    chat_id: int,
+    message_id: int,
+    config: Config,
+    stop_event: threading.Event,
+) -> None:
+    path = progress_path(config.db_path.parent)
+    last_text = ""
+    while not stop_event.wait(_progress_poll_interval):
+        data = read(path)
+        if data.get("status") not in ("running",):
+            break
+        text = format_telegram(data)
+        if text and text != last_text:
+            if api.edit_message(chat_id, message_id, text):
+                last_text = text
 
 
 def _run_subprocess(config: Config, dry_run: bool) -> int:
@@ -163,22 +197,61 @@ def _start_cycle_async(
     config: Config,
     dry_run: bool,
 ) -> None:
-    label = "dry-run" if dry_run else "боевой цикл"
+    label = "Dry-run" if dry_run else "Боевой цикл"
+    prog_path = progress_path(config.db_path.parent)
+    CycleProgress(prog_path).reset()
 
     def worker() -> None:
+        initial = format_telegram(
+            {
+                "status": "running",
+                "dry_run": dry_run,
+                "phase": "trending",
+                "current": 0,
+                "total": 0,
+                "detail": "Запуск…",
+            },
+            title=f"🔄 {label}",
+        )
+        message_id = api.send_message_id(chat_id, initial)
+        stop_event = threading.Event()
+        poller: threading.Thread | None = None
+        if message_id is not None:
+            poller = threading.Thread(
+                target=_poll_progress_loop,
+                args=(api, chat_id, message_id, config, stop_event),
+                daemon=True,
+            )
+            poller.start()
+
         code = _run_subprocess(config, dry_run=dry_run)
-        if dry_run:
-            api.send_message(chat_id, f"✅ {label} завершён (код {code}). Смотрите data/radar.log")
-        else:
+        stop_event.set()
+        if poller is not None:
+            poller.join(timeout=2.0)
+
+        data = read(prog_path)
+        if data.get("status") not in ("done", "error"):
+            if code == 0:
+                CycleProgress(prog_path).done(detail=f"Код выхода {code}")
+            else:
+                CycleProgress(prog_path).error(f"Код выхода {code}")
+            data = read(prog_path)
+
+        final = format_telegram(data, title=f"✅ {label}" if code == 0 else f"❌ {label}")
+        if dry_run and code == 0:
+            final += "\n\nСмотрите data/radar.log"
+        elif code == 0:
             storage = Storage(config.db_path)
             try:
                 n = len(storage.published_today(config.timezone))
             finally:
                 storage.close()
-            api.send_message(
-                chat_id,
-                f"✅ {label} завершён. Постов сегодня: {n}. Лог: data/radar.log",
-            )
+            final += f"\n\nПостов сегодня: {n}"
+
+        if message_id is not None:
+            api.edit_message(chat_id, message_id, final)
+        else:
+            api.send_message(chat_id, final)
 
     threading.Thread(target=worker, daemon=True).start()
 
@@ -230,16 +303,14 @@ def handle_command(
             storage.close()
         api.send_message(chat_id, f"Всего опубликовано репозиториев: {total}")
     elif cmd == "/run":
-        if _is_cycle_running(config):
-            api.send_message(chat_id, "⏳ Уже выполняется цикл. Подождите ~5–10 мин.")
+        if _is_cycle_running(config) or is_running(progress_path(config.db_path.parent)):
+            api.send_message(chat_id, "⏳ Уже выполняется цикл. Смотрите /status")
             return False
-        api.send_message(chat_id, "⏳ Запускаю боевой цикл (~5–10 мин)...")
         _start_cycle_async(api, chat_id, config, dry_run=False)
     elif cmd == "/dry":
-        if _is_cycle_running(config):
+        if _is_cycle_running(config) or is_running(progress_path(config.db_path.parent)):
             api.send_message(chat_id, "⏳ Уже выполняется цикл.")
             return False
-        api.send_message(chat_id, "⏳ Запускаю dry-run (~5–10 мин)...")
         _start_cycle_async(api, chat_id, config, dry_run=True)
     elif cmd in ("/stop", "/stopall"):
         stop_all = cmd == "/stopall" or (
