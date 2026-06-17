@@ -17,7 +17,9 @@ logger = logging.getLogger("github_radar.image_pick")
 MARKDOWN_IMG = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
 LINKED_MD_IMG = re.compile(r"\[![^\]]*\]\(([^)]+)\)\]\(([^)]+)\)", re.IGNORECASE)
 HTML_IMG = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
+HTML_PICTURE = re.compile(r"<picture\b[^>]*>.*?</picture>", re.IGNORECASE | re.DOTALL)
 HTML_SRC = re.compile(r'\bsrc=["\']([^"\']+)["\']', re.IGNORECASE)
+HTML_SRCSET = re.compile(r'\bsrcset=["\']([^"\']+)["\']', re.IGNORECASE)
 HTML_ALT = re.compile(r'\balt=["\']([^"\']*)["\']', re.IGNORECASE)
 
 JUNK_URL = re.compile(
@@ -143,6 +145,30 @@ def _section_at(pos: int, sections: list[tuple[int, str]]) -> str:
     return current
 
 
+def _srcset_best_url(srcset: str) -> str:
+    best_url = ""
+    best_w = 0
+    for part in srcset.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        bits = part.split()
+        url = bits[0]
+        width = 0
+        if len(bits) > 1 and bits[1].endswith("w"):
+            try:
+                width = int(bits[1][:-1])
+            except ValueError:
+                width = 0
+        if width >= best_w:
+            best_w = width
+            best_url = url
+    if best_url:
+        return best_url
+    first = srcset.split(",")[0].strip().split()
+    return first[0] if first else ""
+
+
 def _collect_candidates(readme: str) -> list[_Candidate]:
     sections = _parse_sections(readme)
     found: list[_Candidate] = []
@@ -171,6 +197,19 @@ def _collect_candidates(readme: str) -> list[_Candidate]:
     for match in MARKDOWN_IMG.finditer(readme):
         add(match.group(2), match.group(1), match.start())
 
+    for block in HTML_PICTURE.finditer(readme):
+        tag = block.group(0)
+        pos = block.start()
+        alt_m = HTML_ALT.search(tag)
+        alt = alt_m.group(1) if alt_m else ""
+        for srcset_m in HTML_SRCSET.finditer(tag):
+            url = _srcset_best_url(srcset_m.group(1))
+            if url:
+                add(url, alt, pos)
+        src_m = HTML_SRC.search(tag)
+        if src_m:
+            add(src_m.group(1), alt, pos)
+
     for tag in HTML_IMG.finditer(readme):
         src_m = HTML_SRC.search(tag.group(0))
         if not src_m:
@@ -183,6 +222,16 @@ def _collect_candidates(readme: str) -> list[_Candidate]:
         )
 
     return [c for c in found if c.url not in video_linked]
+
+
+def _image_dimensions(data: bytes) -> tuple[int, int]:
+    try:
+        from PIL import Image
+
+        with Image.open(io.BytesIO(data)) as img:
+            return img.size
+    except Exception:
+        return 0, 0
 
 
 def _image_aspect_ratio(data: bytes) -> float | None:
@@ -312,17 +361,19 @@ def _fetch_image_bytes(url: str, client: httpx.Client | None) -> bytes | None:
 
 def _probe_image(
     url: str, client: httpx.Client | None
-) -> tuple[float | None, bool]:
+) -> tuple[float | None, bool, int]:
     data = _fetch_image_bytes(url, client)
     if not data:
-        return None, False
-    aspect = _image_aspect_ratio(data)
+        return None, False, 0
+    w, h = _image_dimensions(data)
+    area = w * h
+    aspect = (w / h) if h > 0 else None
     visual_ok = has_rich_visual_content(data)
-    return aspect, visual_ok
+    return aspect, visual_ok, area
 
 
 def _probe_aspect(url: str, client: httpx.Client | None) -> float | None:
-    aspect, _ = _probe_image(url, client)
+    aspect, _, _ = _probe_image(url, client)
     return aspect
 
 
@@ -331,6 +382,7 @@ def _score_candidate(
     aspect: float | None = None,
     *,
     visual_ok: bool = True,
+    pixel_area: int = 0,
 ) -> int:
     url = candidate.url
     alt = candidate.alt
@@ -376,6 +428,13 @@ def _score_candidate(
     if aspect is not None and 1.3 <= aspect <= 2.2:
         score += 15
 
+    if pixel_area >= 800_000:
+        score += 45
+    elif pixel_area >= 400_000:
+        score += 30
+    elif pixel_area >= 150_000:
+        score += 15
+
     for hint in SCREENSHOT_HINTS:
         if hint in low or hint in alt_low:
             score += 25
@@ -412,20 +471,22 @@ def pick_readme_image(
         return None
 
     candidates = _collect_candidates(readme)
-    ranked: list[tuple[int, int, str]] = []
+    ranked: list[tuple[int, int, int, str]] = []
 
     for idx, candidate in enumerate(candidates):
         resolved = _resolve_url(candidate.url, repo)
-        aspect, visual_ok = _probe_image(resolved, http_client)
-        score = _score_candidate(candidate, aspect, visual_ok=visual_ok)
+        aspect, visual_ok, area = _probe_image(resolved, http_client)
+        score = _score_candidate(
+            candidate, aspect, visual_ok=visual_ok, pixel_area=area
+        )
         if score >= min_score:
-            ranked.append((score, idx, resolved))
+            ranked.append((score, area, idx, resolved))
 
     if not ranked:
         return None
 
-    ranked.sort(key=lambda x: (-x[0], x[1]))
-    return ranked[0][2]
+    ranked.sort(key=lambda x: (-x[0], -x[1], x[2]))
+    return ranked[0][3]
 
 
 def og_image_url(repo: Repo) -> str:

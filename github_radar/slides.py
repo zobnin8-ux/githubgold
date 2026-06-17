@@ -188,12 +188,11 @@ class SlideRenderer:
             return None
 
     def _resolve_screenshot(self, draft: PostDraft) -> Optional[Path]:
-        """Return local path to card art (README screenshot or OG fallback)."""
-        from github_radar.image_pick import is_good_card_art, og_image_url, pick_readme_image
+        """Return local path to README screenshot, or None for brand plaque."""
+        from github_radar.image_pick import is_good_card_art, pick_readme_image
 
         repo = draft.repo
         slug = repo.full_name.replace("/", "_")
-        og_url = og_image_url(repo)
 
         candidates: list[tuple[str, str]] = []
         seen_urls: set[str] = set()
@@ -207,42 +206,42 @@ class SlideRenderer:
         _add(draft.image_url, slug)
         if draft.readme:
             _add(pick_readme_image(draft.readme, repo, http_client=self._http), slug)
-        _add(og_url, f"{slug}_og")
 
-        fallback: Optional[Path] = None
         for url, cache_name in candidates:
             path = self._download_image(url, cache_name)
             if not path or not path.exists():
                 continue
-            data = path.read_bytes()
-            if is_good_card_art(data):
-                if url == og_url and len(candidates) > 1:
-                    logger.info("Using OG card for %s", repo.full_name)
+            if is_good_card_art(path.read_bytes()):
                 return path
-            if url == og_url:
-                fallback = path
-            else:
-                logger.info("Rejected card art for %s: %s", repo.full_name, url[:96])
+            logger.info("Rejected card art for %s: %s", repo.full_name, url[:96])
 
-        if fallback and fallback.exists():
-            return fallback
-        return self._download_image(og_url, f"{slug}_og")
+        return None
 
-    def _screenshot_html(self, image_path: Optional[Path]) -> str:
-        if not image_path or not image_path.exists():
-            return '<div class="art-placeholder">Скриншот недоступен</div>'
-        data = base64.b64encode(image_path.read_bytes()).decode("ascii")
-        ext = image_path.suffix.lower().lstrip(".")
-        mime = {
-            "png": "image/png",
-            "jpg": "image/jpeg",
-            "jpeg": "image/jpeg",
-            "gif": "image/gif",
-            "webp": "image/webp",
-        }.get(ext, "image/png")
-        img_class = "art-cover-center" if "_og" in image_path.stem else ""
-        cls_attr = f' class="{img_class}"' if img_class else ""
-        return f'<img{cls_attr} src="data:{mime};base64,{data}" alt="" />'
+    def _brand_plaque_html(self, draft: PostDraft) -> str:
+        repo = draft.repo
+        lang = html.escape(repo.language or "Open Source")
+        name = html.escape(repo.name)
+        return (
+            f'<div class="art-brand-plaque">'
+            f'<img class="plaque-nugget" src="assets/logo.png" alt="" />'
+            f'<div class="plaque-name">{name}</div>'
+            f'<div class="plaque-lang">{lang}</div>'
+            f"</div>"
+        )
+
+    def _art_html(self, image_path: Optional[Path], draft: PostDraft) -> str:
+        if image_path and image_path.exists():
+            data = base64.b64encode(image_path.read_bytes()).decode("ascii")
+            ext = image_path.suffix.lower().lstrip(".")
+            mime = {
+                "png": "image/png",
+                "jpg": "image/jpeg",
+                "jpeg": "image/jpeg",
+                "gif": "image/gif",
+                "webp": "image/webp",
+            }.get(ext, "image/png")
+            return f'<img src="data:{mime};base64,{data}" alt="" />'
+        return self._brand_plaque_html(draft)
 
     def _build_html(self, draft: PostDraft, fmt: str) -> str:
         fmt = normalize_slide_format(fmt)
@@ -285,7 +284,7 @@ class SlideRenderer:
             "rarity_label": html.escape(rarity.rarity_label),
             "rarity_stars_html": _stars_html(rarity.rarity_stars),
             "bullets_html": _bullets_html(bullets),
-            "screenshot_html": self._screenshot_html(screenshot),
+            "screenshot_html": self._art_html(screenshot, draft),
         }
         return _replace_placeholders(self._card_template, mapping)
 
