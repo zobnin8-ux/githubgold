@@ -12,6 +12,7 @@ from github_radar.github_source import GitHubRateLimitError, GitHubSource
 from github_radar.http_ssl import ssl_verify
 from github_radar.logging_setup import setup_logging
 from github_radar.prefilter import build_funnel
+from github_radar.process_lock import process_lock
 from github_radar.publisher import Publisher
 from github_radar.readme_fetch import ReadmeFetcher
 from github_radar.storage import Storage
@@ -136,7 +137,30 @@ def main() -> None:
         help="Compute funnel and generate posts without publishing",
     )
     args = parser.parse_args()
-    sys.exit(0 if run_cycle(dry_run=args.dry_run) >= 0 else 1)
+
+    config = load_config()
+    ssl_verify()
+    setup_logging(config.log_path)
+    lock_path = config.db_path.parent / "radar.lock"
+
+    with process_lock(lock_path) as acquired:
+        if not acquired:
+            pid = None
+            try:
+                pid = int(lock_path.read_text(encoding="utf-8").splitlines()[0])
+            except (OSError, ValueError, IndexError):
+                pass
+            msg = (
+                "Radar cycle already running"
+                + (f" (PID {pid})" if pid else "")
+                + f". Lock: {lock_path.resolve()}"
+            )
+            logger.error(msg)
+            print(msg, file=sys.stderr)
+            sys.exit(2)
+
+        code = 0 if run_cycle(dry_run=args.dry_run) >= 0 else 1
+        sys.exit(code)
 
 
 if __name__ == "__main__":
