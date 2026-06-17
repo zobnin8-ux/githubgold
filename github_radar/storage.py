@@ -24,6 +24,9 @@ class Storage:
         "rarity_stars": "INTEGER",
         "card_number": "INTEGER",
         "hype": "REAL",
+        "stars": "INTEGER",
+        "forks": "INTEGER",
+        "open_issues": "INTEGER",
     }
 
     def __init__(self, db_path: Path) -> None:
@@ -100,6 +103,9 @@ class Storage:
         rarity_stars: int | None = None,
         card_number: int | None = None,
         hype: float | None = None,
+        stars: int | None = None,
+        forks: int | None = None,
+        open_issues: int | None = None,
     ) -> None:
         ts = (published_at or datetime.now(timezone.utc)).isoformat()
         bullets_json = json.dumps(slide_bullets or [], ensure_ascii=False)
@@ -108,8 +114,9 @@ class Storage:
             INSERT OR REPLACE INTO published (
                 repo_id, full_name, published_at, message_id,
                 text_ru, slide_hook, slide_headline, slide_body, slide_bullets,
-                category, image_url, license, rarity, rarity_stars, card_number, hype
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                category, image_url, license, rarity, rarity_stars, card_number, hype,
+                stars, forks, open_issues
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 repo_id,
@@ -128,6 +135,9 @@ class Storage:
                 rarity_stars,
                 card_number,
                 hype,
+                stars,
+                forks,
+                open_issues,
             ),
         )
         self._conn.commit()

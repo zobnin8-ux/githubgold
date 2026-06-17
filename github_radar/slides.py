@@ -424,7 +424,7 @@ def build_demo_draft(
     import httpx
 
     from github_radar.hype import compute_rarity
-    from github_radar.image_pick import og_image_url, pick_readme_image
+    from github_radar.image_pick import pick_readme_image
     from github_radar.models import Repo
 
     client = httpx.Client(
@@ -467,8 +467,6 @@ def build_demo_draft(
             if payload.get("encoding") == "base64":
                 readme = base64.b64decode(payload["content"]).decode("utf-8", errors="replace")
         image_url = pick_readme_image(readme, demo_repo, http_client=client)
-        if not image_url:
-            image_url = og_image_url(demo_repo)
     finally:
         client.close()
 
@@ -506,6 +504,17 @@ def draft_from_published(row: dict[str, Any], config: Config) -> PostDraft:
     hype = float(row["hype"] or 0) or 7.5
     card_number = int(row["card_number"] or 0)
     base = build_demo_draft(config, full_name, hype=hype, card_number=card_number)
+
+    if row.get("open_issues") is not None:
+        base = replace(
+            base,
+            repo=replace(
+                base.repo,
+                stars=int(row.get("stars") or base.repo.stars),
+                forks=int(row.get("forks") or base.repo.forks),
+                open_issues=int(row["open_issues"]),
+            ),
+        )
 
     bullets = base.slide_bullets
     if row.get("slide_bullets"):

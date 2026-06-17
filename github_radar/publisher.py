@@ -50,7 +50,8 @@ def build_caption(draft: PostDraft) -> str:
     lang = repo.language or "—"
 
     footer = (
-        f"\n\n⭐ {repo.stars}  ·  🍴 {repo.forks}  ·  {_escape(lang)}\n\n"
+        f"\n\n⭐ {repo.stars}  ·  🍴 {repo.forks}  ·  🐛 {repo.open_issues}  ·  "
+        f"{_escape(lang)}\n\n"
         f'<a href="{repo.html_url}">Открыть на GitHub</a>'
     )
     if hashtags:
@@ -158,6 +159,9 @@ class Publisher:
             rarity_stars=rarity.rarity_stars if rarity else None,
             card_number=card_number,
             hype=draft.hype,
+            stars=repo.stars,
+            forks=repo.forks,
+            open_issues=repo.open_issues,
         )
         draft.card_number = card_number
         draft.message_id = message_id

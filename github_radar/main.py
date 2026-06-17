@@ -92,6 +92,11 @@ def run_cycle(dry_run: bool = False) -> int:
             logger.info("Dry run complete: %d drafts, nothing published", len(drafts))
             return 0
 
+        for draft in drafts:
+            fresh = github.fetch_repo(draft.repo.full_name)
+            if fresh:
+                draft.repo = fresh
+
         publisher = Publisher(config, storage)
         try:
             published = publisher.publish_all(drafts)

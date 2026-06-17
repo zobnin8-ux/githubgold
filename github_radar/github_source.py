@@ -125,7 +125,15 @@ class GitHubSource:
             params={"q": query, "sort": "stars", "order": "desc", "per_page": per_page},
         )
         items = response.json().get("items", [])
-        return [self._repo_from_api(item, has_releases=False) for item in items]
+        repos: list[Repo] = []
+        for item in items:
+            full_name = item.get("full_name")
+            if not full_name:
+                continue
+            repo = self.fetch_repo(full_name)
+            if repo:
+                repos.append(repo)
+        return repos
 
     def fetch_repo(self, full_name: str) -> Optional[Repo]:
         try:
