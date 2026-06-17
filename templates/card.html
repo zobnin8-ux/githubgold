@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    @font-face {
+      font-family: "Manrope";
+      src: url("assets/fonts/Manrope-Bold.woff") format("woff");
+      font-weight: 700;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: "Inter";
+      src: url("assets/fonts/Inter-Regular.woff") format("woff");
+      font-weight: 400;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: "Inter";
+      src: url("assets/fonts/Inter-Bold.woff") format("woff");
+      font-weight: 700;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: "JetBrains Mono";
+      src: url("assets/fonts/JetBrainsMono-Regular.woff") format("woff");
+      font-weight: 400;
+      font-style: normal;
+    }
+
+    :root {
+      --paper: {{paper_bg}};
+      --gold: {{frame_gold}};
+      --accent: {{accent_color}};
+      --ink: #1a1a1a;
+      --muted: #5c5c5c;
+      --card-w: {{width}}px;
+      --card-h: {{height}}px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: var(--card-w);
+      height: var(--card-h);
+      overflow: hidden;
+      background: #111;
+      font-family: "Inter", sans-serif;
+      color: var(--ink);
+    }
+
+    .card {
+      width: 100%;
+      height: 100%;
+      background-color: var(--paper);
+      background-image: url("assets/paper.png");
+      background-size: 512px 512px;
+      border: 6px solid var(--gold);
+      border-radius: 28px;
+      padding: 30px 40px 26px;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 20px;
+    }
+
+    .card.legendary {
+      border-color: #E0B23C;
+      box-shadow:
+        0 0 28px rgba(224, 178, 60, 0.35),
+        inset 0 0 0 2px rgba(255, 215, 120, 0.45);
+    }
+
+    .card.legendary .art-window {
+      border-color: #E8C45A;
+      box-shadow: inset 0 0 16px rgba(224, 178, 60, 0.2);
+    }
+
+    .card.legendary .brand-corner::after {
+      content: "";
+      position: absolute;
+      width: 72px;
+      height: 72px;
+      border-radius: 16px;
+      pointer-events: none;
+      background: linear-gradient(135deg, rgba(255, 230, 140, 0.35), transparent 55%);
+    }
+
+    .card.rarity-common {
+      border-color: #8B939C;
+      background-color: #EEEBE6;
+    }
+
+    .card.rarity-common .art-window {
+      border-color: #9CA3AF;
+    }
+
+    .card.rarity-common .stat-pill {
+      background: rgba(107, 114, 128, 0.1);
+      border-color: rgba(107, 114, 128, 0.18);
+    }
+
+    .brand-corner {
+      position: relative;
+    }
+
+    .card-body {
+      min-height: 0;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+    }
+
+    .hero-row {
+      flex: 0 0 auto;
+      min-height: 468px;
+    }
+
+    .header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      flex-shrink: 0;
+      gap: 16px;
+    }
+
+    .brand-corner {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .logo {
+      width: 72px;
+      height: 72px;
+      border-radius: 16px;
+      object-fit: cover;
+      flex-shrink: 0;
+    }
+
+    .brand-text {
+      font-family: "Manrope", sans-serif;
+      font-weight: 700;
+      font-size: 26px;
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+    }
+
+    .header-right {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    .rarity-badge {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 14px;
+      border-radius: 14px;
+      background: color-mix(in srgb, var(--accent) 10%, white);
+      border: 2px solid color-mix(in srgb, var(--accent) 32%, transparent);
+    }
+
+    .rarity-stars {
+      display: flex;
+      gap: 3px;
+      font-size: 18px;
+      color: var(--accent);
+      line-height: 1;
+    }
+
+    .rarity-stars .dim { opacity: 0.25; }
+
+    .rarity-label {
+      font-family: "Inter", sans-serif;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: var(--accent);
+      white-space: nowrap;
+    }
+
+    .card-number {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 20px;
+      font-weight: 400;
+      color: var(--muted);
+    }
+
+    .art-window {
+      background: #0f1117;
+      border: 3px solid var(--gold);
+      border-radius: 16px;
+      overflow: hidden;
+      height: 468px;
+      min-height: 468px;
+      display: flex;
+      align-items: stretch;
+      justify-content: center;
+    }
+
+    .art-window.art-contain {
+      background: #eef0f3;
+      align-items: center;
+    }
+
+    .art-window.art-contain img {
+      object-fit: contain;
+      object-position: center center;
+      max-height: 100%;
+      max-width: 100%;
+    }
+
+    .art-window img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center top;
+      display: block;
+    }
+
+    .art-placeholder {
+      color: #888;
+      font-size: 15px;
+      text-align: center;
+      padding: 24px;
+      line-height: 1.4;
+      margin: auto;
+    }
+
+    .identity-block {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .repo-path {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 15px;
+      color: var(--muted);
+    }
+
+    .repo-name {
+      font-family: "Manrope", sans-serif;
+      font-weight: 700;
+      font-size: 56px;
+      line-height: 1;
+      letter-spacing: -0.03em;
+    }
+
+    .meta-line {
+      font-family: "Inter", sans-serif;
+      font-size: 16px;
+      font-weight: 400;
+      color: var(--muted);
+      letter-spacing: 0.01em;
+    }
+
+    .name-underline {
+      height: 5px;
+      width: 120px;
+      background: var(--accent);
+      border-radius: 3px;
+      margin-top: 4px;
+    }
+
+    .content-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28px;
+      align-items: start;
+      flex-shrink: 0;
+    }
+
+    .card-copy {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .slide-headline {
+      font-family: "Inter", sans-serif;
+      font-size: 26px;
+      font-weight: 700;
+      line-height: 1.25;
+      letter-spacing: -0.01em;
+    }
+
+    .slide-body {
+      font-size: 19px;
+      line-height: 1.45;
+      font-weight: 400;
+    }
+
+    .about-title {
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    .bullets {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .bullets li {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 16px;
+      line-height: 1.35;
+    }
+
+    .bullet-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--accent);
+      flex-shrink: 0;
+      margin-top: 6px;
+    }
+
+    .stat-bar {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      flex-shrink: 0;
+    }
+
+    .stat-pill {
+      background: rgba(0, 0, 0, 0.04);
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      border-radius: 14px;
+      padding: 14px 10px;
+      text-align: center;
+    }
+
+    .stat-value {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 22px;
+      font-weight: 400;
+      color: var(--ink);
+      margin-bottom: 4px;
+    }
+
+    .stat-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+
+    .footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-top: 1px solid rgba(0, 0, 0, 0.1);
+      padding-top: 14px;
+      flex-shrink: 0;
+    }
+
+    .tagline {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    .tagline img {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+    }
+
+    .handle {
+      font-family: "Manrope", sans-serif;
+      font-weight: 700;
+      font-size: 18px;
+      color: var(--accent);
+    }
+
+    /* --- reel (9:16 simplified vertical) --- */
+    .card.format-reel {
+      padding: 28px 36px 24px;
+      gap: 16px;
+    }
+
+    .card.format-reel .card-body {
+      gap: 18px;
+      flex: 1;
+      min-height: 0;
+    }
+
+    .card.format-reel .hero-row {
+      flex: 0 0 43%;
+      min-height: 342px;
+      max-height: 820px;
+      height: 43%;
+    }
+
+    .card.format-reel .art-window {
+      height: 100%;
+      min-height: 0;
+    }
+
+    .card.format-reel .slide-headline {
+      font-size: 28px;
+    }
+
+    .card.format-reel .slide-body {
+      font-size: 21px;
+      line-height: 1.5;
+    }
+
+    .card.format-reel .bullets li {
+      font-size: 17px;
+    }
+
+    .card.format-reel .content-row {
+      grid-template-columns: 1fr;
+      gap: 18px;
+    }
+
+    .card.format-reel .repo-name {
+      font-size: 52px;
+    }
+
+    .card.format-reel .meta-line {
+      font-size: 17px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card {{card_rarity_classes}} {{format_class}}">
+    <header class="header">
+      <div class="brand-corner">
+        <img class="logo" src="assets/logo.png" alt="" />
+        <div class="brand-text">{{brand_name}}</div>
+      </div>
+      <div class="header-right">
+        <div class="rarity-badge">
+          <div class="rarity-stars">{{rarity_stars_html}}</div>
+          <div class="rarity-label">{{rarity_label}}</div>
+        </div>
+        <div class="card-number">#{{card_number}}</div>
+      </div>
+    </header>
+
+    <div class="card-body">
+      <div class="hero-row">
+        <div class="art-window {{art_window_class}}">
+          {{screenshot_html}}
+        </div>
+      </div>
+
+      <div class="identity-block">
+        <div class="repo-path">{{repo_full_name}}</div>
+        <div class="repo-name">{{repo_name}}</div>
+        <div class="meta-line">{{meta_line}}</div>
+        <div class="name-underline"></div>
+      </div>
+
+      <div class="content-row">
+        <div class="card-copy">
+          <p class="slide-headline">{{slide_headline}}</p>
+          <p class="slide-body">{{slide_body}}</p>
+        </div>
+        <div>
+          <div class="about-title">О проекте</div>
+          <ul class="bullets">
+            {{bullets_html}}
+          </ul>
+        </div>
+      </div>
+
+      <div class="stat-bar">
+        <div class="stat-pill">
+          <div class="stat-value">{{stars_fmt}}</div>
+          <div class="stat-label">Звёзды</div>
+        </div>
+        <div class="stat-pill">
+          <div class="stat-value">{{forks_fmt}}</div>
+          <div class="stat-label">Форки</div>
+        </div>
+        <div class="stat-pill">
+          <div class="stat-value">{{issues_fmt}}</div>
+          <div class="stat-label">Issues</div>
+        </div>
+      </div>
+    </div>
+
+    <footer class="footer">
+      <div class="tagline">
+        <img src="assets/logo.png" alt="" />
+        <span>{{brand_tagline}}</span>
+      </div>
+      <div class="handle">{{brand_handle}}</div>
+    </footer>
+  </div>
+</body>
+</html>
