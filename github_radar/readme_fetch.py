@@ -36,6 +36,10 @@ class ReadmeFetcher:
     def close(self) -> None:
         self._client.close()
 
+    @property
+    def http_client(self) -> httpx.Client:
+        return self._client
+
     def _decode_readme_payload(self, data: dict) -> str:
         content = data.get("content")
         if not content or not isinstance(content, str):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 import sys
 import threading
@@ -13,7 +14,7 @@ from github_radar.admin_store import get_admin_chat_id, load_admin, save_admin
 from github_radar.config import Config, load_config
 from github_radar.http_ssl import ssl_verify
 from github_radar.logging_setup import setup_logging
-from github_radar.process_lock import find_radar_main_pids, stop_radar_cycles
+from github_radar.process_lock import find_radar_main_pids, stop_everything
 from github_radar.progress import (
     CycleProgress,
     format_telegram,
@@ -34,7 +35,7 @@ HELP_TEXT = """🏆 Золото GitHub — команды
 /today — что вышло в канал сегодня
 /stats — всего опубликовано в базе
 /stop — остановить только бот
-/stop all — остановить радар (main) + снять lock + остановить бот
+/stopall — полная остановка: main, все боты, все lock-файлы
 /help или /commands — этот список
 
 Автопостинг: Task Scheduler ~3 раза в сутки (9 постов/день)."""
@@ -312,34 +313,51 @@ def handle_command(
             api.send_message(chat_id, "⏳ Уже выполняется цикл.")
             return False
         _start_cycle_async(api, chat_id, config, dry_run=True)
-    elif cmd in ("/stop", "/stopall"):
-        stop_all = cmd == "/stopall" or (
-            args and args[0].lower() in ("all", "все")
-        )
-        if stop_all:
-            subprocess_stopped = _stop_cycle_subprocess()
-            killed = stop_radar_cycles(config.db_path.parent)
-            parts: list[str] = []
-            if killed:
-                parts.append(f"main: PID {', '.join(map(str, killed))}")
-            elif subprocess_stopped:
-                parts.append("main: /run subprocess")
-            else:
-                parts.append("main: не найден")
-            parts.append("lock: снят")
-            api.send_message(
-                chat_id,
-                "🛑 Остановлен радар и бот.\n\n"
-                + "\n".join(parts)
-                + "\n\nЗапуск снова: Zoloto GitHub.lnk в D:\\treasure",
+    elif cmd == "/stopall":
+        global _cycle_running
+        subprocess_stopped = _stop_cycle_subprocess()
+        result = stop_everything(config.db_path.parent)
+        _cycle_running = False
+
+        parts: list[str] = []
+        if result.killed_main:
+            parts.append(f"main: PID {', '.join(map(str, result.killed_main))}")
+        elif subprocess_stopped:
+            parts.append("main: /run subprocess")
+        else:
+            parts.append("main: не было")
+        if result.killed_bots:
+            parts.append(f"бот (другие): PID {', '.join(map(str, result.killed_bots))}")
+        parts.append(f"бот (этот): PID {os.getpid()} — выключается")
+        if result.locks_removed:
+            parts.append(f"lock: {', '.join(result.locks_removed)}")
+        else:
+            parts.append("lock: не было")
+
+        left = result.remaining_main + result.remaining_bots
+        if left:
+            verify = (
+                f"⚠️ Не удалось остановить: PID {', '.join(map(str, left))}\n"
+                "Проверьте Диспетчер задач вручную."
             )
-            time.sleep(0.4)
-            return True
+        else:
+            verify = "✅ Проверка: других процессов github_radar не осталось"
+
+        api.send_message(
+            chat_id,
+            "🛑 Полная остановка.\n\n"
+            + "\n".join(parts)
+            + f"\n\n{verify}\n\n"
+            "Запуск снова: Zoloto GitHub.lnk в D:\\treasure",
+        )
+        time.sleep(0.4)
+        return True
+    elif cmd == "/stop":
         api.send_message(
             chat_id,
             "🛑 Останавливаю бот.\n\n"
             "Радар (main) продолжит работу, если запущен отдельно.\n"
-            "Остановить всё: /stop all\n\n"
+            "Остановить всё: /stopall\n\n"
             "Запуск снова: Zoloto GitHub.lnk в папке D:\\treasure",
         )
         time.sleep(0.4)

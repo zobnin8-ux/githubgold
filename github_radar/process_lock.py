@@ -5,12 +5,16 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import time
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
 logger = logging.getLogger("github_radar.lock")
+
+LOCK_FILES = ("radar.lock", "cycle.lock", "bot.launch.lock")
 
 
 def _pid_alive(pid: int) -> bool:
@@ -119,15 +123,15 @@ def _terminate_pid(pid: int) -> bool:
         return False
 
 
-def find_radar_main_pids() -> list[int]:
-    """PIDs of python processes running ``github_radar.main``."""
+def _find_github_radar_pids(pattern: str) -> list[int]:
     own = os.getpid()
     if sys.platform == "win32":
         import subprocess
 
         script = (
-            "Get-CimInstance Win32_Process -Filter \"name='python.exe'\" | "
-            "Where-Object { $_.CommandLine -match 'github_radar\\.main' } | "
+            "Get-CimInstance Win32_Process | "
+            "Where-Object { $_.Name -match 'python(w)?\\.exe' -and "
+            f"$_.CommandLine -match '{pattern}' }} | "
             "Select-Object -ExpandProperty ProcessId"
         )
         try:
@@ -154,7 +158,7 @@ def find_radar_main_pids() -> list[int]:
 
     try:
         result = subprocess.run(
-            ["pgrep", "-f", "github_radar.main"],
+            ["pgrep", "-f", pattern.replace("\\.", ".")],
             capture_output=True,
             text=True,
             timeout=10,
@@ -172,25 +176,80 @@ def find_radar_main_pids() -> list[int]:
     return pids
 
 
-def stop_radar_cycles(data_dir: Path) -> list[int]:
-    """Kill all ``github_radar.main`` processes and remove lock files."""
+def find_radar_main_pids() -> list[int]:
+    """PIDs of python processes running ``github_radar.main``."""
+    return _find_github_radar_pids(r"github_radar\.main")
+
+
+def find_radar_bot_pids() -> list[int]:
+    """PIDs of other python processes running ``github_radar.bot``."""
+    return _find_github_radar_pids(r"github_radar\.bot")
+
+
+@dataclass
+class StopEverythingResult:
+    killed_main: list[int] = field(default_factory=list)
+    killed_bots: list[int] = field(default_factory=list)
+    locks_removed: list[str] = field(default_factory=list)
+    remaining_main: list[int] = field(default_factory=list)
+    remaining_bots: list[int] = field(default_factory=list)
+
+
+def _remove_locks(data_dir: Path) -> list[str]:
+    removed: list[str] = []
+    for name in LOCK_FILES:
+        lock = data_dir / name
+        if not lock.exists():
+            continue
+        try:
+            lock.unlink()
+            removed.append(name)
+            logger.info("Removed lock file %s", lock)
+        except OSError:
+            logger.warning("Could not remove lock file %s", lock)
+    return removed
+
+
+def _kill_pids(pids: list[int], label: str) -> list[int]:
     killed: list[int] = []
-    for pid in find_radar_main_pids():
+    for pid in pids:
         if _terminate_pid(pid):
             killed.append(pid)
-            logger.info("Stopped radar main PID %s", pid)
+            logger.info("Stopped %s PID %s", label, pid)
+    return killed
 
-    for name in ("radar.lock", "cycle.lock"):
-        lock = data_dir / name
-        if lock.exists():
-            try:
-                lock.unlink()
-                logger.info("Removed lock file %s", lock)
-            except OSError:
-                logger.warning("Could not remove lock file %s", lock)
+
+def stop_everything(data_dir: Path) -> StopEverythingResult:
+    """Stop all radar main/bot processes, remove locks, reset progress."""
+    killed_main = _kill_pids(find_radar_main_pids(), "radar main")
+    killed_bots = _kill_pids(find_radar_bot_pids(), "bot")
+    locks_removed = _remove_locks(data_dir)
 
     from github_radar.progress import CycleProgress, progress_path
 
     CycleProgress(progress_path(data_dir)).reset()
 
-    return killed
+    time.sleep(0.4)
+
+    remaining_main = find_radar_main_pids()
+    remaining_bots = find_radar_bot_pids()
+    if remaining_main or remaining_bots:
+        _kill_pids(remaining_main, "radar main")
+        _kill_pids(remaining_bots, "bot")
+        time.sleep(0.3)
+        remaining_main = find_radar_main_pids()
+        remaining_bots = find_radar_bot_pids()
+
+    return StopEverythingResult(
+        killed_main=killed_main,
+        killed_bots=killed_bots,
+        locks_removed=locks_removed,
+        remaining_main=remaining_main,
+        remaining_bots=remaining_bots,
+    )
+
+
+def stop_radar_cycles(data_dir: Path) -> list[int]:
+    """Kill all ``github_radar.main`` processes and remove lock files."""
+    result = stop_everything(data_dir)
+    return result.killed_main

@@ -120,21 +120,18 @@ class GitHubSource:
         return has
 
     def search_repositories(self, query: str, per_page: int = 50) -> list[Repo]:
+        """Search API already includes stars/forks/open_issues_count per item."""
         logger.info("Search: %s", query)
         response = self._get(
             f"{GITHUB_API}/search/repositories",
             params={"q": query, "sort": "stars", "order": "desc", "per_page": per_page},
         )
         items = response.json().get("items", [])
-        repos: list[Repo] = []
-        for item in items:
-            full_name = item.get("full_name")
-            if not full_name:
-                continue
-            repo = self.fetch_repo(full_name)
-            if repo:
-                repos.append(repo)
-        return repos
+        return [
+            self._repo_from_api(item, has_releases=False)
+            for item in items
+            if item.get("full_name")
+        ]
 
     def fetch_repo(self, full_name: str) -> Optional[Repo]:
         try:

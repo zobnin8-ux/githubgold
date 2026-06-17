@@ -40,6 +40,37 @@ def _print_candidate(c) -> None:
         print("  Image: (none, will use OG card)")
 
 
+def _print_weird_status(
+    config,
+    storage,
+    *,
+    weird_slot: bool,
+    weird_draft,
+    added: int,
+) -> None:
+    if not config.weird_enabled:
+        print("\n--- WEIRD ---\n  disabled (WEIRD_ENABLED=false)")
+        return
+    print("\n--- WEIRD ---")
+    print(
+        f"  Reserve: {storage.weird_reserve_count()}/{config.weird_reserve_target}"
+        f" (+{added} this run)"
+    )
+    print(
+        f"  Posted today: {storage.weird_posted_today(config.timezone)}"
+        f"/{config.weird_per_day}"
+    )
+    if weird_slot:
+        if weird_draft:
+            print(f"  Slot: 1 joker → {weird_draft.repo.full_name}")
+            print(f"  Headline: {weird_draft.slide_headline}")
+            print(f"  Body: {weird_draft.slide_body}")
+        else:
+            print("  Slot: skipped (reserve empty, quality-gate)")
+    else:
+        print("  Slot: daily quota filled — this run is hype-only")
+
+
 def run_cycle(dry_run: bool = False) -> int:
     config = load_config()
     ssl_verify()
@@ -68,10 +99,43 @@ def run_cycle(dry_run: bool = False) -> int:
             return 0
 
         funnel = build_funnel(repos, config, storage, readme_fetcher, github_source=github)
-        if not funnel:
+
+        weird_added = 0
+        weird_slot = False
+        weird_draft = None
+        if config.weird_enabled:
+            from github_radar.weird import (
+                needs_weird_slot,
+                peek_weird_draft,
+                pop_weird_draft,
+                purge_weird_reserve_no_visual,
+                refill_weird_reserve,
+            )
+
+            purge_weird_reserve_no_visual(
+                storage, github, readme_fetcher
+            )
+            weird_added = refill_weird_reserve(
+                config, storage, github, readme_fetcher
+            )
+            weird_slot = needs_weird_slot(config, storage)
+
+        weird_can_post = (
+            config.weird_enabled
+            and weird_slot
+            and storage.weird_reserve_count() > 0
+        )
+        if not funnel and not weird_can_post:
             logger.warning("Empty funnel, nothing to curate")
             prog.error("Пустая воронка после README")
             return 0
+
+        if config.weird_enabled:
+            funnel = [c for c in funnel if not storage.weird_is_known(c.repo.id)]
+
+        hype_count = config.posts_per_run
+        if config.weird_enabled and weird_slot:
+            hype_count = max(0, config.posts_per_run - 1)
 
         if dry_run:
             print("\n--- PREFILTER FUNNEL ---")
@@ -80,7 +144,30 @@ def run_cycle(dry_run: bool = False) -> int:
 
         update("curator", detail="Claude отбирает и пишет тексты…")
         curator = Curator(config)
-        drafts = curator.curate(funnel)
+        drafts: list = []
+        if hype_count > 0 and funnel:
+            drafts = curator.curate(funnel, count=hype_count)
+
+        if config.weird_enabled and weird_slot:
+            if dry_run:
+                weird_draft = peek_weird_draft(
+                    config, storage, github, readme_fetcher
+                )
+            else:
+                weird_draft = pop_weird_draft(
+                    config, storage, github, readme_fetcher
+                )
+            if weird_draft:
+                drafts.append(weird_draft)
+
+        if config.weird_enabled:
+            _print_weird_status(
+                config,
+                storage,
+                weird_slot=weird_slot,
+                weird_draft=weird_draft,
+                added=weird_added,
+            )
 
         if not drafts:
             logger.warning("No posts generated")
@@ -91,15 +178,68 @@ def run_cycle(dry_run: bool = False) -> int:
             print("\n--- SELECTED & DRAFT POSTS ---")
             for draft in drafts:
                 print(f"\n{'='*60}")
-                print(f"  {draft.repo.full_name}")
+                tag = " 🃏 ДИЧЬ" if draft.is_weird else ""
+                print(f"  {draft.repo.full_name}{tag}")
                 if draft.image_url:
                     print(f"  Photo: {draft.image_url}")
                 else:
                     print("  Photo: OG fallback")
                 print("  ---")
                 print(draft.text_ru)
-            logger.info("Dry run complete: %d drafts, nothing published", len(drafts))
-            prog.done(published=0, detail=f"Dry-run: {len(drafts)} черновиков")
+
+            print("\n--- CARD QA ---")
+            from github_radar.card_qa import CardQAError, format_qa_report
+            from github_radar.slides import SlideRenderer
+            import os
+            import tempfile
+
+            renderer = SlideRenderer(config)
+            qa_pass = 0
+            qa_total = 0
+            try:
+                for draft in drafts:
+                    fresh = github.fetch_repo(draft.repo.full_name)
+                    if fresh:
+                        draft.repo = fresh
+                    already = storage.is_published(draft.repo.id)
+                    for fmt in ("carousel", "reel"):
+                        qa_total += 1
+                        fd, tmpname = tempfile.mkstemp(suffix=f"_{fmt}.png")
+                        os.close(fd)
+                        tmp = Path(tmpname)
+                        try:
+                            renderer.render_one(
+                                draft,
+                                fmt=fmt,
+                                output_path=tmp,
+                                fresh_repo=fresh,
+                                is_already_published=already,
+                            )
+                            if renderer.last_qa:
+                                print(format_qa_report(renderer.last_qa))
+                                if renderer.last_qa.passed:
+                                    qa_pass += 1
+                        except CardQAError as exc:
+                            print(
+                                f"  QA [FAIL] {exc.repo} ({exc.fmt}) | "
+                                + "; ".join(exc.errors)
+                            )
+                        finally:
+                            tmp.unlink(missing_ok=True)
+            finally:
+                renderer.close()
+
+            print(f"\n  QA итог: {qa_pass}/{qa_total} карточек прошли")
+            logger.info(
+                "Dry run complete: %d drafts, QA %d/%d",
+                len(drafts),
+                qa_pass,
+                qa_total,
+            )
+            prog.done(
+                published=0,
+                detail=f"Dry-run: {len(drafts)} черновиков, QA {qa_pass}/{qa_total}",
+            )
             return 0
 
         for draft in drafts:

@@ -25,7 +25,14 @@ HTML_ALT = re.compile(r'\balt=["\']([^"\']*)["\']', re.IGNORECASE)
 JUNK_URL = re.compile(
     r"shields\.io|badge|travis|codecov|coveralls|workflow|status\.svg|dependabot|"
     r"img\.shields|circleci|appveyor|snapcraft|star-history\.com|"
-    r"avatars\.githubusercontent\.com|contrib\.rocks|trendshift\.io",
+    r"avatars\.githubusercontent\.com|contrib\.rocks|trendshift\.io|"
+    r"gravatar\.com|secure\.gravatar|i\.imgur\.com/avatar|opengraph\.githubassets",
+    re.IGNORECASE,
+)
+AVATAR_URL = re.compile(
+    r"avatars\.githubusercontent\.com|gravatar\.com|/u/\d{3,}|"
+    r"github\.com/u/\d+|/avatar[s]?/|profile[_-]?pic|userpic|"
+    r"author[_-]?avatar|owner[_-]?avatar",
     re.IGNORECASE,
 )
 VIDEO_URL = re.compile(
@@ -235,16 +242,29 @@ def _image_dimensions(data: bytes) -> tuple[int, int]:
 
 
 def _image_aspect_ratio(data: bytes) -> float | None:
-    try:
-        from PIL import Image
+    w, h = _image_dimensions(data)
+    if w > 0 and h > 0:
+        return w / h
+    return None
 
-        with Image.open(io.BytesIO(data)) as img:
-            w, h = img.size
-            if h <= 0:
-                return None
-            return w / h
-    except Exception:
-        return None
+
+def is_likely_avatar(url: str = "", *, width: int = 0, height: int = 0) -> bool:
+    """Reject profile photos / icons unsuitable for the art window."""
+    low = (url or "").lower()
+    if low and AVATAR_URL.search(low):
+        return True
+    if width > 0 and height > 0:
+        aspect = width / height
+        area = width * height
+        has_shot_hint = any(h in low for h in SCREENSHOT_HINTS)
+        if 0.82 <= aspect <= 1.22:
+            if max(width, height) <= 720:
+                return True
+            if area < 600_000:
+                return True
+            if max(width, height) <= 1024 and not has_shot_hint:
+                return True
+    return False
 
 
 def _row_content_ratio(lums: list[float], width: int, height: int) -> float:
@@ -331,12 +351,16 @@ def has_rich_visual_content(data: bytes) -> bool:
         return False
 
 
-def is_good_card_art(data: bytes) -> bool:
+def is_good_card_art(data: bytes, url: str = "") -> bool:
     """README/OG image suitable for the fixed 16:10 art window."""
     if not data or len(data) < 500:
         return False
 
-    aspect = _image_aspect_ratio(data)
+    w, h = _image_dimensions(data)
+    if is_likely_avatar(url, width=w, height=h):
+        return False
+
+    aspect = (w / h) if h > 0 else _image_aspect_ratio(data)
     if aspect is not None and (aspect < 0.75 or aspect >= WIDE_BANNER_RATIO):
         return False
 
@@ -366,6 +390,8 @@ def _probe_image(
     if not data:
         return None, False, 0
     w, h = _image_dimensions(data)
+    if is_likely_avatar(url, width=w, height=h):
+        return None, False, 0
     area = w * h
     aspect = (w / h) if h > 0 else None
     visual_ok = has_rich_visual_content(data)
@@ -397,6 +423,8 @@ def _score_candidate(
         return -1000
 
     if JUNK_URL.search(low):
+        return -1000
+    if AVATAR_URL.search(low):
         return -1000
     if VIDEO_URL.search(low) or VIDEO_FILE.search(low):
         return -1000
@@ -458,6 +486,33 @@ def _score_candidate(
         score -= 50
 
     return score
+
+
+def pick_weird_screenshot(
+    readme: str,
+    repo: Repo,
+    *,
+    http_client: httpx.Client | None = None,
+) -> str | None:
+    """README screenshot/gif for «Дичь» — never OG, never brand plaque."""
+    url = pick_readme_image(readme, repo, http_client=http_client)
+    if not url or "opengraph.githubassets.com" in url.lower():
+        return None
+    if http_client is None:
+        return url
+    data = _fetch_image_bytes(url, http_client)
+    if not data or not is_good_card_art(data, url):
+        return None
+    return url
+
+
+def has_real_screenshot(
+    readme: str,
+    repo: Repo,
+    *,
+    http_client: httpx.Client | None = None,
+) -> bool:
+    return pick_weird_screenshot(readme, repo, http_client=http_client) is not None
 
 
 def pick_readme_image(

@@ -13,6 +13,13 @@ from typing import Any, Optional
 
 import httpx
 
+from github_radar.card_qa import (
+    CardQAError,
+    CardQAResult,
+    check_png_size,
+    evaluate_dom_qa,
+    finalize_qa_result,
+)
 from github_radar.config import Config
 from github_radar.curator import BODY_MAX, HEADLINE_MAX
 from github_radar.http_ssl import ssl_verify
@@ -80,13 +87,18 @@ def _resolve_card_text(draft: PostDraft) -> tuple[str, str]:
     return draft.repo.name[:HEADLINE_MAX], ""
 
 
-def _meta_line(category: str, license_str: str, language: str) -> str:
-    parts = [
-        (category or "Репозиторий").strip(),
-        license_str.strip() or "—",
-        (language or "—").strip(),
-    ]
-    return " • ".join(parts)
+def _meta_line(license_str: str, language: str) -> str:
+    lang = (language or "—").strip()
+    lic = license_str.strip() or "—"
+    return f"{lang} • {lic}"
+
+
+def _stats_line(stars: int, forks: int, issues: int) -> str:
+    issue_word = "issue" if issues == 1 else "issues"
+    return (
+        f"⭐ {_fmt_count(stars)} · 🍴 {_fmt_count(forks)} · "
+        f"◎ {issues} {issue_word}"
+    )
 
 
 def normalize_slide_format(fmt: str) -> str:
@@ -97,6 +109,23 @@ def normalize_slide_format(fmt: str) -> str:
 def _rarity_card_classes(rarity: RarityInfo) -> str:
     css = _RARITY_CSS.get(rarity.rarity, "")
     return css
+
+
+def _header_badge_html(draft: PostDraft, config: Config, rarity: RarityInfo) -> str:
+    if draft.is_weird:
+        label = html.escape(config.weird_badge.upper())
+        return (
+            '<div class="weird-badge">'
+            f'<span class="weird-star">★</span>'
+            f'<span class="weird-label">{label}</span>'
+            "</div>"
+        )
+    return (
+        '<div class="rarity-badge">'
+        f'<div class="rarity-stars">{_stars_html(rarity.rarity_stars)}</div>'
+        f'<div class="rarity-label">{html.escape(rarity.rarity_label)}</div>'
+        "</div>"
+    )
 
 
 def _fmt_count(n: int) -> str:
@@ -159,6 +188,7 @@ class SlideRenderer:
         self._http = httpx.Client(timeout=30.0, verify=ssl_verify(), follow_redirects=True)
         self._cache_dir = config.slide_dir / "_cache" / "images"
         self._cache_dir.mkdir(parents=True, exist_ok=True)
+        self.last_qa: Optional[CardQAResult] = None
 
     def close(self) -> None:
         self._http.close()
@@ -201,6 +231,8 @@ class SlideRenderer:
         def _add(url: str | None, cache_name: str) -> None:
             if not url or url in seen_urls:
                 return
+            if "opengraph.githubassets.com" in url.lower():
+                return
             seen_urls.add(url)
             candidates.append((url, cache_name))
 
@@ -212,7 +244,7 @@ class SlideRenderer:
             path = self._download_image(url, cache_name)
             if not path or not path.exists():
                 continue
-            if is_good_card_art(path.read_bytes()):
+            if is_good_card_art(path.read_bytes(), url):
                 return path
             logger.info("Rejected card art for %s: %s", repo.full_name, url[:96])
 
@@ -242,6 +274,8 @@ class SlideRenderer:
                 "webp": "image/webp",
             }.get(ext, "image/png")
             return f'<img src="data:{mime};base64,{data}" alt="" />'
+        if draft.is_weird:
+            return '<div class="art-missing" aria-hidden="true"></div>'
         return self._brand_plaque_html(draft)
 
     def _build_html(self, draft: PostDraft, fmt: str) -> str:
@@ -256,17 +290,23 @@ class SlideRenderer:
             is_legendary=False,
         )
         screenshot = self._resolve_screenshot(draft)
-        bullets = draft.slide_bullets or ["", "", ""]
         license_str = format_license(repo.license)
         headline, body = _resolve_card_text(draft)
+
+        if draft.is_weird:
+            accent = self._config.weird_accent
+            card_classes = "card-weird"
+        else:
+            accent = rarity.accent_color
+            card_classes = _rarity_card_classes(rarity)
 
         mapping = {
             "width": str(width),
             "height": str(height),
             "paper_bg": self._config.paper_bg,
             "frame_gold": self._config.frame_gold,
-            "accent_color": rarity.accent_color,
-            "card_rarity_classes": _rarity_card_classes(rarity),
+            "accent_color": accent,
+            "card_rarity_classes": card_classes,
             "format_class": "format-reel" if fmt == "reel" else "format-carousel",
             "brand_name": html.escape(self._config.brand_name),
             "brand_handle": html.escape(self._config.brand_handle),
@@ -275,16 +315,14 @@ class SlideRenderer:
             "repo_full_name": html.escape(repo.full_name),
             "repo_name": html.escape(repo.name),
             "meta_line": html.escape(
-                _meta_line(draft.category or "Репозиторий", license_str, repo.language or "—")
+                _meta_line(license_str, repo.language or "—")
             ),
             "slide_headline": html.escape(headline),
             "slide_body": html.escape(body),
-            "stars_fmt": _fmt_count(repo.stars),
-            "forks_fmt": _fmt_count(repo.forks),
-            "issues_fmt": _fmt_count(repo.open_issues),
-            "rarity_label": html.escape(rarity.rarity_label),
-            "rarity_stars_html": _stars_html(rarity.rarity_stars),
-            "bullets_html": _bullets_html(bullets),
+            "stats_line": html.escape(
+                _stats_line(repo.stars, repo.forks, repo.open_issues)
+            ),
+            "header_badge_html": _header_badge_html(draft, self._config, rarity),
             "screenshot_html": self._art_html(screenshot, draft),
         }
         return _replace_placeholders(self._card_template, mapping)
@@ -297,8 +335,13 @@ class SlideRenderer:
         *,
         browser: Any = None,
         folder_when: datetime | None = None,
+        qa: bool = True,
+        fresh_repo: Optional["Repo"] = None,
+        is_already_published: bool = False,
     ) -> Path:
         from playwright.sync_api import sync_playwright
+
+        from github_radar.models import Repo
 
         fmt = normalize_slide_format(fmt)
         width, height = FORMAT_SIZES.get(fmt, FORMAT_SIZES["carousel"])
@@ -323,12 +366,15 @@ class SlideRenderer:
         else:
             playwright = None
 
+        dom_qa: dict[str, Any] = {}
         try:
             page = browser.new_page(
                 viewport={"width": width, "height": height},
                 device_scale_factor=1,
             )
             page.goto(work_html.resolve().as_uri(), wait_until="load", timeout=60_000)
+            if qa:
+                dom_qa = evaluate_dom_qa(page)
             card = page.locator(".card")
             card.screenshot(
                 path=str(output_path),
@@ -341,6 +387,31 @@ class SlideRenderer:
                 browser.close()
                 if playwright is not None:
                     playwright.stop()
+
+        if qa:
+            result = CardQAResult(repo=draft.repo.full_name, fmt=fmt)
+            size_ok, size = check_png_size(output_path, fmt)
+            result.png_size_ok = size_ok
+            result.png_size = size
+            if dom_qa.get("ok"):
+                result.text_fits = bool(dom_qa.get("text_fits"))
+                result.body_font_px = float(dom_qa.get("body_font_px") or 0)
+                result.text_truncated = bool(dom_qa.get("truncated"))
+                result.art_type = str(dom_qa.get("art_type") or "unknown")
+            else:
+                result.errors.append("DOM QA failed")
+            finalize_qa_result(
+                result,
+                draft,
+                fresh_repo=fresh_repo,
+            )
+            if is_already_published:
+                result.errors.append("дедуп: уже опубликован")
+                result.passed = False
+            self.last_qa = result
+            if not result.passed:
+                output_path.unlink(missing_ok=True)
+                raise CardQAError(draft.repo.full_name, fmt, result.errors)
 
         logger.info("Rendered %s -> %s", draft.repo.full_name, output_path)
         return output_path
@@ -378,8 +449,11 @@ class SlideRenderer:
                                     fmt=fmt,
                                     browser=browser,
                                     folder_when=batch_when,
+                                    fresh_repo=draft.repo,
                                 )
                             )
+                        except CardQAError as exc:
+                            logger.error("Card QA rejected %s: %s", exc.repo, exc.errors)
                         except Exception:
                             logger.exception(
                                 "Slide render failed for %s (%s)",
@@ -554,4 +628,5 @@ def draft_from_published(row: dict[str, Any], config: Config) -> PostDraft:
         rarity_info=compute_rarity(hype, config),
         card_number=card_number,
         published_at=published_at,
+        is_weird=bool(row.get("is_weird")),
     )

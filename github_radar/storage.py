@@ -27,6 +27,7 @@ class Storage:
         "stars": "INTEGER",
         "forks": "INTEGER",
         "open_issues": "INTEGER",
+        "is_weird": "INTEGER",
     }
 
     def __init__(self, db_path: Path) -> None:
@@ -53,6 +54,13 @@ class Storage:
             );
             CREATE INDEX IF NOT EXISTS idx_star_history_repo
                 ON star_history(repo_id, ts);
+
+            CREATE TABLE IF NOT EXISTS weird_reserve (
+                repo_id   INTEGER PRIMARY KEY,
+                full_name TEXT NOT NULL,
+                payload   TEXT NOT NULL,
+                added_at  TEXT NOT NULL
+            );
             """
         )
         self._migrate_published_columns()
@@ -106,6 +114,7 @@ class Storage:
         stars: int | None = None,
         forks: int | None = None,
         open_issues: int | None = None,
+        is_weird: bool = False,
     ) -> None:
         ts = (published_at or datetime.now(timezone.utc)).isoformat()
         bullets_json = json.dumps(slide_bullets or [], ensure_ascii=False)
@@ -115,8 +124,8 @@ class Storage:
                 repo_id, full_name, published_at, message_id,
                 text_ru, slide_hook, slide_headline, slide_body, slide_bullets,
                 category, image_url, license, rarity, rarity_stars, card_number, hype,
-                stars, forks, open_issues
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                stars, forks, open_issues, is_weird
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 repo_id,
@@ -138,6 +147,7 @@ class Storage:
                 stars,
                 forks,
                 open_issues,
+                1 if is_weird else 0,
             ),
         )
         self._conn.commit()
@@ -219,3 +229,87 @@ class Storage:
             (start_utc, end_utc),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def weird_reserve_count(self) -> int:
+        row = self._conn.execute("SELECT COUNT(*) FROM weird_reserve").fetchone()
+        return int(row[0]) if row else 0
+
+    def weird_is_known(self, repo_id: int) -> bool:
+        if self.is_published(repo_id):
+            return True
+        row = self._conn.execute(
+            "SELECT 1 FROM weird_reserve WHERE repo_id = ?", (repo_id,)
+        ).fetchone()
+        return row is not None
+
+    def weird_reserve_add(
+        self, repo_id: int, full_name: str, payload: dict[str, Any]
+    ) -> bool:
+        if self.weird_is_known(repo_id):
+            return False
+        ts = datetime.now(timezone.utc).isoformat()
+        try:
+            self._conn.execute(
+                """
+                INSERT INTO weird_reserve (repo_id, full_name, payload, added_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (repo_id, full_name, json.dumps(payload, ensure_ascii=False), ts),
+            )
+            self._conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+    def weird_reserve_peek_oldest(self) -> Optional[dict[str, Any]]:
+        row = self._conn.execute(
+            """
+            SELECT repo_id, full_name, payload, added_at
+            FROM weird_reserve
+            ORDER BY added_at ASC
+            LIMIT 1
+            """
+        ).fetchone()
+        return dict(row) if row else None
+
+    def weird_reserve_pop_oldest(self) -> Optional[dict[str, Any]]:
+        row = self.weird_reserve_peek_oldest()
+        if not row:
+            return None
+        self._conn.execute(
+            "DELETE FROM weird_reserve WHERE repo_id = ?", (row["repo_id"],)
+        )
+        self._conn.commit()
+        return row
+
+    def weird_reserve_delete(self, repo_id: int) -> None:
+        self._conn.execute(
+            "DELETE FROM weird_reserve WHERE repo_id = ?", (repo_id,)
+        )
+        self._conn.commit()
+
+    def weird_reserve_list(self, limit: int = 10) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            """
+            SELECT repo_id, full_name, payload, added_at
+            FROM weird_reserve
+            ORDER BY added_at ASC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def weird_posted_today(self, tz: ZoneInfo | None = None) -> int:
+        from github_radar.timeutil import day_bounds_utc, resolve_timezone
+
+        tz = tz or resolve_timezone(None)
+        start_utc, end_utc = day_bounds_utc(tz)
+        row = self._conn.execute(
+            """
+            SELECT COUNT(*) FROM published
+            WHERE is_weird = 1 AND published_at >= ? AND published_at < ?
+            """,
+            (start_utc, end_utc),
+        ).fetchone()
+        return int(row[0]) if row else 0

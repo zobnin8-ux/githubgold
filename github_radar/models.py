@@ -99,3 +99,4 @@ class PostDraft:
     card_number: Optional[int] = None
     message_id: Optional[int] = None
     published_at: Optional[datetime] = None
+    is_weird: bool = False

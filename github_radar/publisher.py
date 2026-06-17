@@ -163,6 +163,7 @@ class Publisher:
             stars=repo.stars,
             forks=repo.forks,
             open_issues=repo.open_issues,
+            is_weird=draft.is_weird,
         )
         draft.card_number = card_number
         draft.message_id = message_id

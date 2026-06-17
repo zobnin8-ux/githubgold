@@ -78,6 +78,23 @@ DEFAULT_NICHE_PENALTY = [
     "k8s",
 ]
 
+DEFAULT_WEIRD_TOPICS = [
+    "fun",
+    "joke",
+    "useless",
+    "silly",
+    "meme",
+    "for-fun",
+    "cursed",
+    "art",
+    "creative-coding",
+    "generative",
+    "toy",
+    "ascii",
+    "esoteric",
+    "desktop-pet",
+]
+
 DEFAULT_TOPICS = [
     "ai",
     "llm",
@@ -140,6 +157,12 @@ class Config:
     rarity_thresholds: tuple[int, int, int, int]
     templates_dir: Path
     timezone_name: str
+    weird_enabled: bool
+    weird_per_day: int
+    weird_reserve_target: int
+    weird_accent: str
+    weird_badge: str
+    weird_topics: list[str]
 
     @property
     def timezone(self) -> ZoneInfo:
@@ -200,6 +223,12 @@ ENV_KNOWN: frozenset[str] = frozenset(
         "FRAME_GOLD",
         "PAPER_BG",
         "RARITY_THRESHOLDS",
+        "WEIRD_ENABLED",
+        "WEIRD_PER_DAY",
+        "WEIRD_RESERVE_TARGET",
+        "WEIRD_ACCENT",
+        "WEIRD_BADGE",
+        "WEIRD_TOPICS",
     }
 )
 
@@ -267,6 +296,9 @@ def load_config(env_path: str | Path | None = None) -> Config:
     topics_raw = os.getenv("TOPICS", ",".join(DEFAULT_TOPICS))
     topics = [t.strip() for t in topics_raw.split(",") if t.strip()]
 
+    weird_topics_raw = os.getenv("WEIRD_TOPICS", ",".join(DEFAULT_WEIRD_TOPICS))
+    weird_topics = [t.strip() for t in weird_topics_raw.split(",") if t.strip()]
+
     return Config(
         telegram_bot_token=os.environ["TELEGRAM_BOT_TOKEN"].strip(),
         telegram_channel_id=channel_id,
@@ -310,6 +342,12 @@ def load_config(env_path: str | Path | None = None) -> Config:
         ),
         templates_dir=Path(os.getenv("TEMPLATES_DIR", "./templates")),
         timezone_name=os.getenv("TIMEZONE", "Europe/Moscow").strip(),
+        weird_enabled=_bool(os.getenv("WEIRD_ENABLED"), default=True),
+        weird_per_day=int(os.getenv("WEIRD_PER_DAY", "1")),
+        weird_reserve_target=int(os.getenv("WEIRD_RESERVE_TARGET", "10")),
+        weird_accent=os.getenv("WEIRD_ACCENT", "#FF3D9A").strip(),
+        weird_badge=os.getenv("WEIRD_BADGE", "ДИЧЬ").strip(),
+        weird_topics=weird_topics,
     )
 
 

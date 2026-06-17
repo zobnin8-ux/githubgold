@@ -36,7 +36,6 @@
       --muted: #5c5c5c;
       --card-w: {{width}}px;
       --card-h: {{height}}px;
-      --art-ratio: 16 / 10;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -64,10 +63,16 @@
       background-size: 512px 512px;
       border: 6px solid var(--gold);
       border-radius: 28px;
-      padding: 30px 40px 22px;
-      display: flex;
-      flex-direction: column;
-      gap: 18px;
+      padding: 70px 36px;
+      display: grid;
+      grid-template-areas:
+        "hd"
+        "art"
+        "id"
+        "copy"
+        "stats"
+        "ft";
+      gap: 16px;
     }
 
     .card.legendary {
@@ -82,16 +87,6 @@
       box-shadow: inset 0 0 16px rgba(224, 178, 60, 0.2);
     }
 
-    .card.legendary .brand-corner::after {
-      content: "";
-      position: absolute;
-      width: 72px;
-      height: 72px;
-      border-radius: 16px;
-      pointer-events: none;
-      background: linear-gradient(135deg, rgba(255, 230, 140, 0.35), transparent 55%);
-    }
-
     .card.rarity-common {
       border-color: #8B939C;
       background-color: #EEEBE6;
@@ -101,45 +96,72 @@
       border-color: #9CA3AF;
     }
 
-    .card.rarity-common .stat-pill {
-      background: rgba(107, 114, 128, 0.1);
-      border-color: rgba(107, 114, 128, 0.18);
+    .card.card-weird .art-brand-plaque {
+      background: linear-gradient(155deg, #ffe0f0 0%, #ff3d9a 45%, #4a1030 100%);
     }
 
-    .brand-corner {
-      position: relative;
+    .weird-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 22px;
+      border-radius: 999px;
+      background: var(--accent);
+      border: 3px solid #ffffff;
+      transform: rotate(-6deg);
+      box-shadow:
+        0 6px 18px rgba(255, 61, 154, 0.45),
+        0 2px 0 rgba(0, 0, 0, 0.08);
     }
 
-    .card-body {
-      flex: 1 1 auto;
-      min-height: 0;
-      display: flex;
-      flex-direction: column;
-      gap: 20px;
+    .weird-star {
+      font-size: 26px;
+      color: #ffffff;
+      line-height: 1;
+      font-weight: 700;
     }
 
-    .hero-row {
-      flex: 0 0 auto;
+    .weird-label {
+      font-family: "Inter", sans-serif;
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      color: #ffffff;
+      white-space: nowrap;
+      text-transform: uppercase;
     }
+
+    .card.card-weird .slide-headline {
+      padding-bottom: 10px;
+      border-bottom: 4px solid var(--accent);
+    }
+
+    .card.card-weird .tagline-gem {
+      color: var(--accent);
+    }
+
+    .card-body { display: contents; }
 
     .header {
+      grid-area: hd;
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
-      flex-shrink: 0;
       gap: 16px;
+      min-height: 0;
     }
 
     .brand-corner {
       display: flex;
       align-items: center;
-      gap: 14px;
+      gap: 12px;
+      position: relative;
     }
 
     .logo {
-      width: 72px;
-      height: 72px;
-      border-radius: 16px;
+      width: 52px;
+      height: 52px;
+      border-radius: 14px;
       object-fit: cover;
       flex-shrink: 0;
     }
@@ -147,7 +169,7 @@
     .brand-text {
       font-family: "Manrope", sans-serif;
       font-weight: 700;
-      font-size: 26px;
+      font-size: 24px;
       line-height: 1.1;
       letter-spacing: -0.02em;
     }
@@ -156,24 +178,24 @@
       display: flex;
       flex-direction: column;
       align-items: flex-end;
-      gap: 10px;
+      gap: 6px;
       flex-shrink: 0;
     }
 
     .rarity-badge {
       display: flex;
       align-items: center;
-      gap: 10px;
-      padding: 8px 14px;
-      border-radius: 14px;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 12px;
       background: color-mix(in srgb, var(--accent) 10%, white);
       border: 2px solid color-mix(in srgb, var(--accent) 32%, transparent);
     }
 
     .rarity-stars {
       display: flex;
-      gap: 3px;
-      font-size: 18px;
+      gap: 2px;
+      font-size: 16px;
       color: var(--accent);
       line-height: 1;
     }
@@ -182,7 +204,7 @@
 
     .rarity-label {
       font-family: "Inter", sans-serif;
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 700;
       letter-spacing: 0.04em;
       color: var(--accent);
@@ -191,31 +213,26 @@
 
     .card-number {
       font-family: "JetBrains Mono", monospace;
-      font-size: 20px;
-      font-weight: 400;
+      font-size: 18px;
       color: var(--muted);
     }
 
+    .hero-row {
+      grid-area: art;
+      min-height: 0;
+    }
+
     .art-window {
-      position: relative;
       width: 100%;
-      flex-shrink: 0;
+      height: 100%;
       background: #0f1117;
       border: 3px solid var(--gold);
-      border-radius: 16px;
+      border-radius: 14px;
       overflow: hidden;
+      position: relative;
     }
 
-    .art-window::before {
-      content: "";
-      display: block;
-      padding-top: 62.5%;
-    }
-
-    .art-window > img,
-    .art-window > .art-placeholder {
-      position: absolute;
-      inset: 0;
+    .art-window > img {
       width: 100%;
       height: 100%;
       display: block;
@@ -224,8 +241,6 @@
     }
 
     .art-brand-plaque {
-      position: absolute;
-      inset: 0;
       width: 100%;
       height: 100%;
       display: flex;
@@ -259,16 +274,16 @@
     }
 
     .plaque-nugget {
-      width: 72px;
-      height: 72px;
-      border-radius: 16px;
+      width: 64px;
+      height: 64px;
+      border-radius: 14px;
       object-fit: cover;
     }
 
     .plaque-name {
       font-family: "Manrope", sans-serif;
       font-weight: 700;
-      font-size: 48px;
+      font-size: 44px;
       line-height: 1.05;
       color: #fff;
       text-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
@@ -287,169 +302,127 @@
     }
 
     .identity-block {
+      grid-area: id;
       display: flex;
       flex-direction: column;
-      gap: 8px;
-      flex-shrink: 0;
+      gap: 0;
+      min-height: 0;
     }
 
     .repo-path {
       font-family: "JetBrains Mono", monospace;
-      font-size: 15px;
+      font-size: 26px;
+      line-height: 1.2;
       color: var(--muted);
+      margin-bottom: 4px;
     }
 
     .repo-name {
       font-family: "Manrope", sans-serif;
       font-weight: 700;
-      font-size: 56px;
-      line-height: 1;
+      font-size: 88px;
+      line-height: 1.05;
       letter-spacing: -0.03em;
     }
 
     .meta-line {
       font-family: "Inter", sans-serif;
-      font-size: 16px;
-      font-weight: 400;
+      font-size: 28px;
+      line-height: 1.2;
       color: var(--muted);
-      letter-spacing: 0.01em;
+      margin-top: 12px;
     }
 
-    .name-underline {
-      height: 5px;
-      width: 120px;
-      background: var(--accent);
-      border-radius: 3px;
-      margin-top: 4px;
-    }
-
-    .content-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 28px;
-      align-items: start;
-      flex: 1 1 auto;
-      min-height: 0;
-    }
-
-    .card-copy {
+    .description-block {
+      grid-area: copy;
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 12px;
+      min-height: 0;
+      max-height: 100%;
+      overflow: hidden;
+      justify-content: flex-start;
     }
 
     .slide-headline {
       font-family: "Inter", sans-serif;
-      font-size: 26px;
+      font-size: 50px;
       font-weight: 700;
-      line-height: 1.25;
-      letter-spacing: -0.01em;
+      line-height: 1.2;
+      letter-spacing: -0.02em;
+      flex-shrink: 0;
+      overflow: hidden;
     }
 
     .slide-body {
-      font-size: 19px;
-      line-height: 1.45;
-      font-weight: 400;
-    }
-
-    .about-title {
-      font-size: 13px;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      color: var(--muted);
-      margin-bottom: 12px;
-    }
-
-    .bullets {
-      list-style: none;
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-    }
-
-    .bullets li {
-      display: flex;
-      align-items: flex-start;
-      gap: 10px;
-      font-size: 16px;
+      font-size: 44px;
       line-height: 1.35;
-    }
-
-    .bullet-dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      background: var(--accent);
-      flex-shrink: 0;
-      margin-top: 6px;
-    }
-
-    .stat-bar {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 12px;
-      flex-shrink: 0;
-      margin-top: auto;
-    }
-
-    .stat-pill {
-      background: rgba(0, 0, 0, 0.04);
-      border: 1px solid rgba(0, 0, 0, 0.08);
-      border-radius: 14px;
-      padding: 14px 10px;
-      text-align: center;
-    }
-
-    .stat-value {
-      font-family: "JetBrains Mono", monospace;
-      font-size: 22px;
       font-weight: 400;
-      color: var(--ink);
-      margin-bottom: 4px;
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: hidden;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
     }
 
-    .stat-label {
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
+    .slide-body.truncated {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .stats-line {
+      grid-area: stats;
+      font-family: "Inter", sans-serif;
+      font-size: 30px;
+      line-height: 1.2;
       color: var(--muted);
+      letter-spacing: 0.01em;
+      align-self: end;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex-shrink: 0;
+      margin-top: 4px;
+    }
+
+    .stats-line .accent {
+      color: var(--accent);
+      font-weight: 700;
     }
 
     .footer {
+      grid-area: ft;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      border-top: 1px solid rgba(0, 0, 0, 0.1);
-      padding-top: 12px;
-      flex-shrink: 0;
+      gap: 16px;
+      min-height: 0;
     }
 
     .tagline {
       display: flex;
       align-items: center;
-      gap: 10px;
-      font-size: 14px;
+      gap: 8px;
+      font-size: 22px;
       color: var(--muted);
     }
 
-    .tagline img {
-      width: 28px;
-      height: 28px;
-      border-radius: 6px;
+    .tagline-gem {
+      color: var(--accent);
+      font-size: 18px;
+      line-height: 1;
     }
 
     .handle {
       font-family: "Manrope", sans-serif;
       font-weight: 700;
-      font-size: 18px;
+      font-size: 22px;
       color: var(--accent);
+      flex-shrink: 0;
     }
 
-    .card-spacer {
-      display: none;
-    }
-
-    /* --- carousel (4:5, fixed 1080×1350) --- */
+    /* --- carousel 1080×1350 --- */
     .card.format-carousel {
       width: 1080px;
       height: 1350px;
@@ -457,147 +430,17 @@
       min-height: 1350px;
       max-width: 1080px;
       max-height: 1350px;
-      padding: 70px 36px 70px 36px;
-      gap: 14px;
-      display: grid;
-      grid-template-areas:
-        "hd"
-        "art"
-        "id"
-        "copy"
-        "stats"
-        "ft";
-      grid-template-rows: 72px 540px 104px minmax(220px, 1fr) 108px 48px;
-    }
-
-    .card.format-carousel .card-body {
-      display: contents;
-    }
-
-    .card.format-carousel .card-spacer {
-      display: none;
-    }
-
-    .card.format-carousel .header {
-      grid-area: hd;
-      align-self: start;
+      padding: 70px 36px;
+      grid-template-rows: 56px 380px auto minmax(0, 420px) 44px 40px;
+      row-gap: 16px;
     }
 
     .card.format-carousel .hero-row {
-      grid-area: art;
-      height: 540px;
-      min-height: 540px;
-      max-height: 540px;
+      height: 380px;
+      max-height: 380px;
     }
 
-    .card.format-carousel .art-window {
-      height: 100%;
-      border-radius: 14px;
-    }
-
-    .card.format-carousel .art-window::before {
-      display: none;
-    }
-
-    .card.format-carousel .identity-block {
-      grid-area: id;
-      gap: 6px;
-      overflow: hidden;
-    }
-
-    .card.format-carousel .repo-path {
-      font-size: 14px;
-      line-height: 1.2;
-    }
-
-    .card.format-carousel .repo-name {
-      font-size: 44px;
-      line-height: 0.95;
-    }
-
-    .card.format-carousel .meta-line {
-      font-size: 15px;
-    }
-
-    .card.format-carousel .name-underline {
-      height: 4px;
-      width: 100px;
-      margin-top: 2px;
-    }
-
-    .card.format-carousel .content-row {
-      grid-area: copy;
-      gap: 16px;
-      align-items: start;
-      overflow: hidden;
-      min-height: 0;
-    }
-
-    .card.format-carousel .card-copy {
-      gap: 8px;
-      min-height: 0;
-    }
-
-    .card.format-carousel .slide-headline {
-      font-size: 22px;
-      line-height: 1.2;
-    }
-
-    .card.format-carousel .slide-body {
-      font-size: 16px;
-      line-height: 1.38;
-    }
-
-    .card.format-carousel .about-title {
-      font-size: 11px;
-      margin-bottom: 8px;
-    }
-
-    .card.format-carousel .bullets {
-      gap: 9px;
-    }
-
-    .card.format-carousel .bullets li {
-      font-size: 14px;
-      line-height: 1.28;
-    }
-
-    .card.format-carousel .stat-bar {
-      grid-area: stats;
-      margin-top: 0;
-      gap: 10px;
-      align-self: stretch;
-    }
-
-    .card.format-carousel .stat-pill {
-      padding: 14px 8px;
-    }
-
-    .card.format-carousel .stat-value {
-      font-size: 20px;
-    }
-
-    .card.format-carousel .footer {
-      grid-area: ft;
-      padding-top: 0;
-      border-top: none;
-      align-self: stretch;
-    }
-
-    .card.format-carousel .logo {
-      width: 56px;
-      height: 56px;
-    }
-
-    .card.format-carousel .brand-text {
-      font-size: 22px;
-    }
-
-    .card.format-carousel .plaque-name {
-      font-size: 40px;
-    }
-
-    /* --- reel (9:16, fixed 1080×1920) --- */
+    /* --- reel 1080×1920 --- */
     .card.format-reel {
       width: 1080px;
       height: 1920px;
@@ -605,88 +448,91 @@
       min-height: 1920px;
       max-width: 1080px;
       max-height: 1920px;
-      padding: 48px 32px 48px 32px;
-      gap: 16px;
-      display: grid;
-      grid-template-areas:
-        "hd"
-        "art"
-        "id"
-        "copy"
-        "stats"
-        "ft";
-      grid-template-rows: 72px 900px 120px minmax(280px, 1fr) 114px 52px;
-    }
-
-    .card.format-reel .card-body {
-      display: contents;
-    }
-
-    .card.format-reel .card-spacer {
-      display: none;
-    }
-
-    .card.format-reel .header {
-      grid-area: hd;
+      padding: 80px 36px 280px 36px;
+      gap: 14px;
+      grid-template-rows: 56px 720px auto minmax(0, 480px) 32px 40px;
+      row-gap: 14px;
     }
 
     .card.format-reel .hero-row {
-      grid-area: art;
-      height: 900px;
-      min-height: 900px;
-      max-height: 900px;
+      height: 720px;
+      max-height: 720px;
     }
 
-    .card.format-reel .art-window {
-      height: 100%;
+    .card.format-reel .logo {
+      width: 56px;
+      height: 56px;
     }
 
-    .card.format-reel .art-window::before {
-      display: none;
+    .card.format-reel .brand-text {
+      font-size: 26px;
     }
 
-    .card.format-reel .identity-block {
-      grid-area: id;
+    .card.format-reel .rarity-stars {
+      font-size: 17px;
+    }
+
+    .card.format-reel .rarity-label {
+      font-size: 14px;
+    }
+
+    .card.format-reel .card-number {
+      font-size: 20px;
+    }
+
+    .card.format-reel .plaque-nugget {
+      width: 72px;
+      height: 72px;
+    }
+
+    .card.format-reel .plaque-name {
+      font-size: 52px;
+    }
+
+    .card.format-reel .plaque-lang {
+      font-size: 20px;
+    }
+
+    .card.format-reel .repo-path {
+      font-size: 28px;
     }
 
     .card.format-reel .repo-name {
-      font-size: 54px;
+      font-size: 96px;
+      line-height: 1.05;
+    }
+
+    .card.format-reel .meta-line {
+      font-size: 30px;
+      margin-top: 12px;
+    }
+
+    .card.format-reel .description-block {
+      gap: 14px;
+      overflow: hidden;
     }
 
     .card.format-reel .slide-headline {
-      font-size: 32px;
+      font-size: 54px;
       line-height: 1.2;
     }
 
     .card.format-reel .slide-body {
-      font-size: 22px;
-      line-height: 1.45;
-    }
-
-    .card.format-reel .bullets li {
-      font-size: 19px;
-    }
-
-    .card.format-reel .content-row {
-      grid-area: copy;
-      display: flex;
-      flex-direction: column;
-      gap: 20px;
-      min-height: 0;
+      font-size: 48px;
+      line-height: 1.35;
       overflow: hidden;
     }
 
-    .card.format-reel .stat-bar {
-      grid-area: stats;
-      margin-top: 0;
-      align-self: end;
+    .card.format-reel .stats-line {
+      font-size: 32px;
     }
 
-    .card.format-reel .footer {
-      grid-area: ft;
-      padding-top: 0;
-      border-top: none;
-      align-self: end;
+    .card.format-reel .tagline {
+      font-size: 24px;
+    }
+
+    .card.format-reel .handle {
+      font-size: 24px;
     }
   </style>
 </head>
@@ -698,10 +544,7 @@
         <div class="brand-text">{{brand_name}}</div>
       </div>
       <div class="header-right">
-        <div class="rarity-badge">
-          <div class="rarity-stars">{{rarity_stars_html}}</div>
-          <div class="rarity-label">{{rarity_label}}</div>
-        </div>
+        {{header_badge_html}}
         <div class="card-number">#{{card_number}}</div>
       </div>
     </header>
@@ -717,47 +560,83 @@
         <div class="repo-path">{{repo_full_name}}</div>
         <div class="repo-name">{{repo_name}}</div>
         <div class="meta-line">{{meta_line}}</div>
-        <div class="name-underline"></div>
       </div>
 
-      <div class="content-row">
-        <div class="card-copy">
-          <p class="slide-headline">{{slide_headline}}</p>
-          <p class="slide-body">{{slide_body}}</p>
-        </div>
-        <div>
-          <div class="about-title">О проекте</div>
-          <ul class="bullets">
-            {{bullets_html}}
-          </ul>
-        </div>
+      <div class="description-block">
+        <p class="slide-headline">{{slide_headline}}</p>
+        <p class="slide-body">{{slide_body}}</p>
       </div>
 
-      <div class="card-spacer" aria-hidden="true"></div>
-
-      <div class="stat-bar">
-        <div class="stat-pill">
-          <div class="stat-value">{{stars_fmt}}</div>
-          <div class="stat-label">Звёзды</div>
-        </div>
-        <div class="stat-pill">
-          <div class="stat-value">{{forks_fmt}}</div>
-          <div class="stat-label">Форки</div>
-        </div>
-        <div class="stat-pill">
-          <div class="stat-value">{{issues_fmt}}</div>
-          <div class="stat-label">Issues</div>
-        </div>
-      </div>
+      <div class="stats-line">{{stats_line}}</div>
     </div>
 
     <footer class="footer">
       <div class="tagline">
-        <img src="assets/logo.png" alt="" />
+        <span class="tagline-gem">◆</span>
         <span>{{brand_tagline}}</span>
       </div>
       <div class="handle">{{brand_handle}}</div>
     </footer>
   </div>
+  <script>
+    (function fitCardCopy() {
+      const card = document.querySelector('.card');
+      const block = document.querySelector('.description-block');
+      const headline = document.querySelector('.slide-headline');
+      const body = document.querySelector('.slide-body');
+      const stats = document.querySelector('.stats-line');
+      if (!card || !block || !headline || !body || !stats) return;
+
+      const isReel = card.classList.contains('format-reel');
+      const minBody = 36;
+      const minHead = 40;
+      let bodyPx = isReel ? 48 : 44;
+      let headPx = isReel ? 54 : 50;
+
+      function gapOk() {
+        const br = block.getBoundingClientRect();
+        const sr = stats.getBoundingClientRect();
+        return sr.top - br.bottom >= 10;
+      }
+
+      function contentOverflow() {
+        return (
+          block.scrollHeight > block.clientHeight + 2 ||
+          body.scrollHeight > body.clientHeight + 2 ||
+          !gapOk()
+        );
+      }
+
+      function applySizes() {
+        body.style.fontSize = bodyPx + 'px';
+        headline.style.fontSize = headPx + 'px';
+        body.classList.remove('truncated');
+        body.style.webkitLineClamp = '';
+        body.style.display = '';
+      }
+
+      applySizes();
+      while (contentOverflow() && bodyPx > minBody) {
+        bodyPx -= 2;
+        headPx = Math.max(minHead, headPx - 2);
+        applySizes();
+      }
+
+      if (contentOverflow()) {
+        body.classList.add('truncated');
+        let lines = 8;
+        while (contentOverflow() && lines > 2) {
+          lines -= 1;
+          body.style.display = '-webkit-box';
+          body.style.webkitBoxOrient = 'vertical';
+          body.style.webkitLineClamp = String(lines);
+        }
+      }
+
+      document.body.dataset.fitBodyPx = String(bodyPx);
+      document.body.dataset.textFits = contentOverflow() ? '0' : '1';
+      document.body.dataset.textTruncated = body.classList.contains('truncated') ? '1' : '0';
+    })();
+  </script>
 </body>
 </html>
