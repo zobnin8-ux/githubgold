@@ -198,7 +198,103 @@ def _image_aspect_ratio(data: bytes) -> float | None:
         return None
 
 
-def _probe_aspect(url: str, client: httpx.Client | None) -> float | None:
+def _row_content_ratio(lums: list[float], width: int, height: int) -> float:
+    """Share of rows that contain visible UI/text (not flat background)."""
+    active_rows = 0
+    for y in range(height):
+        row = [lums[y * width + x] for x in range(width)]
+        if sum(1 for lum in row if lum > 30) / width > 0.05:
+            active_rows += 1
+    return active_rows / height if height else 0.0
+
+
+def _content_fill_ratio(small) -> float:
+    """Share of pixels that differ from the dominant corner background."""
+    from collections import Counter
+
+    pixels = list(small.getdata())
+    if not pixels:
+        return 0.0
+
+    w, h = small.size
+    corner: list[tuple[int, int, int]] = []
+    for x0, y0 in ((0, 0), (max(w - 6, 0), 0), (0, max(h - 6, 0)), (max(w - 6, 0), max(h - 6, 0))):
+        for y in range(y0, min(y0 + 6, h)):
+            for x in range(x0, min(x0 + 6, w)):
+                corner.append(pixels[y * w + x])
+
+    if not corner:
+        return 0.0
+
+    bg = Counter(corner).most_common(1)[0][0]
+
+    def _dist(a: tuple[int, int, int], b: tuple[int, int, int]) -> int:
+        return abs(a[0] - b[0]) + abs(a[1] - b[1]) + abs(a[2] - b[2])
+
+    active = sum(1 for pixel in pixels if _dist(pixel, bg) > 36)
+    return active / len(pixels)
+
+
+def has_rich_visual_content(data: bytes) -> bool:
+    """Reject flat / empty terminal / near-monochrome README images."""
+    try:
+        from PIL import Image, ImageFilter
+
+        with Image.open(io.BytesIO(data)) as img:
+            rgb = img.convert("RGB")
+            small = rgb.resize((180, 135), Image.Resampling.LANCZOS)
+            pixels = list(small.getdata())
+            if not pixels:
+                return False
+
+            lums = [0.299 * r + 0.587 * g + 0.114 * b for r, g, b in pixels]
+            n = len(lums)
+            mean = sum(lums) / n
+            var = sum((x - mean) ** 2 for x in lums) / n
+            std = var**0.5
+
+            buckets = {(r // 24, g // 24, b // 24) for r, g, b in pixels}
+            color_bins = len(buckets)
+            dark_ratio = sum(1 for x in lums if x < 40) / n
+
+            edges = small.convert("L").filter(ImageFilter.FIND_EDGES)
+            edge_energy = sum(edges.getdata()) / (255 * n)
+            fill = _content_fill_ratio(small)
+            row_content = _row_content_ratio(lums, small.size[0], small.size[1])
+
+            if std < 12:
+                return False
+            if color_bins < 8:
+                return False
+            if edge_energy < 0.012:
+                return False
+            if std < 18 and edge_energy < 0.022:
+                return False
+            if dark_ratio > 0.92 and edge_energy < 0.025:
+                return False
+            if fill < 0.10:
+                return False
+            if row_content < 0.45:
+                return False
+            return True
+    except Exception as exc:
+        logger.debug("visual content check failed: %s", exc)
+        return False
+
+
+def is_good_card_art(data: bytes) -> bool:
+    """README/OG image suitable for the fixed 16:10 art window."""
+    if not data or len(data) < 500:
+        return False
+
+    aspect = _image_aspect_ratio(data)
+    if aspect is not None and (aspect < 0.75 or aspect >= WIDE_BANNER_RATIO):
+        return False
+
+    return has_rich_visual_content(data)
+
+
+def _fetch_image_bytes(url: str, client: httpx.Client | None) -> bytes | None:
     if client is None:
         return None
     try:
@@ -208,13 +304,34 @@ def _probe_aspect(url: str, client: httpx.Client | None) -> float | None:
         if "image" not in response.headers.get("content-type", ""):
             if _path_ext(url) not in RASTER_EXT:
                 return None
-        return _image_aspect_ratio(response.content)
+        return response.content
     except Exception as exc:
-        logger.debug("aspect probe failed for %s: %s", url, exc)
+        logger.debug("image fetch failed for %s: %s", url, exc)
         return None
 
 
-def _score_candidate(candidate: _Candidate, aspect: float | None = None) -> int:
+def _probe_image(
+    url: str, client: httpx.Client | None
+) -> tuple[float | None, bool]:
+    data = _fetch_image_bytes(url, client)
+    if not data:
+        return None, False
+    aspect = _image_aspect_ratio(data)
+    visual_ok = has_rich_visual_content(data)
+    return aspect, visual_ok
+
+
+def _probe_aspect(url: str, client: httpx.Client | None) -> float | None:
+    aspect, _ = _probe_image(url, client)
+    return aspect
+
+
+def _score_candidate(
+    candidate: _Candidate,
+    aspect: float | None = None,
+    *,
+    visual_ok: bool = True,
+) -> int:
     url = candidate.url
     alt = candidate.alt
     if not url:
@@ -223,6 +340,9 @@ def _score_candidate(candidate: _Candidate, aspect: float | None = None) -> int:
     low = url.lower()
     alt_low = (alt or "").lower()
     section_low = (candidate.section or "").lower()
+
+    if not visual_ok:
+        return -1000
 
     if JUNK_URL.search(low):
         return -1000
@@ -296,8 +416,8 @@ def pick_readme_image(
 
     for idx, candidate in enumerate(candidates):
         resolved = _resolve_url(candidate.url, repo)
-        aspect = _probe_aspect(resolved, http_client)
-        score = _score_candidate(candidate, aspect)
+        aspect, visual_ok = _probe_image(resolved, http_client)
+        score = _score_candidate(candidate, aspect, visual_ok=visual_ok)
         if score >= min_score:
             ranked.append((score, idx, resolved))
 

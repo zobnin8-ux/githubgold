@@ -6,7 +6,7 @@ import argparse
 import logging
 import sys
 
-from github_radar.config import load_config
+from github_radar.config import load_config, find_stale_env_vars
 from github_radar.curator import Curator
 from github_radar.github_source import GitHubRateLimitError, GitHubSource
 from github_radar.http_ssl import ssl_verify
@@ -42,6 +42,8 @@ def run_cycle(dry_run: bool = False) -> int:
     config = load_config()
     ssl_verify()
     setup_logging(config.log_path)
+    for key, reason in find_stale_env_vars():
+        logger.warning("Ignoring .env key %s (%s)", key, reason)
     logger.info("Starting radar cycle (dry_run=%s)", dry_run)
 
     storage = Storage(config.db_path)

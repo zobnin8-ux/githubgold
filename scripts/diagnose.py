@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from github_radar.config import load_config
+from github_radar.config import find_stale_env_vars, load_config
 from github_radar.http_ssl import ssl_verify
 from github_radar.image_pick import pick_readme_image
 
@@ -38,6 +38,13 @@ def main() -> int:
         ok(f"POSTS_PER_RUN={cfg.posts_per_run}")
         ok(f"MIN_STARS={cfg.min_stars}")
         ok(f"STRICT_NO_LIBS={cfg.strict_no_libs}")
+        stale = find_stale_env_vars()
+        if stale:
+            for key, reason in stale:
+                fail(f".env key {key} ignored — {reason}")
+                errors += 1
+        else:
+            ok("no stale .env keys")
     except Exception as exc:
         fail(str(exc))
         return 1

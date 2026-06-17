@@ -29,9 +29,11 @@ FORMAT_SIZES = {
 FORMAT_ALIASES = {"reels": "reel"}
 
 FORMAT_FOLDERS = {
-    "carousel": "карусель",
-    "reel": "рилс",
+    "carousel": "carousel",
+    "reel": "reels",
 }
+
+SAMPLES_DIR = "_samples"
 
 _RARITY_CSS = {
     "обычная": "rarity-common",
@@ -135,7 +137,15 @@ def _replace_placeholders(template: str, mapping: dict[str, str]) -> str:
     return out
 
 
-CONTAIN_RATIO = 2.0
+def _verify_png_size(path: Path, width: int, height: int) -> None:
+    from PIL import Image
+
+    with Image.open(path) as img:
+        if img.size != (width, height):
+            raise ValueError(
+                f"Rendered PNG {path.name} is {img.size[0]}x{img.size[1]}, "
+                f"expected {width}x{height}"
+            )
 
 
 class SlideRenderer:
@@ -177,42 +187,46 @@ class SlideRenderer:
             logger.warning("Image download failed %s: %s", url, exc)
             return None
 
-    def _resolve_screenshot(self, draft: PostDraft) -> tuple[Optional[Path], str]:
-        """Return (image path, art_window extra CSS class)."""
-        from github_radar.image_pick import og_image_url, pick_readme_image
+    def _resolve_screenshot(self, draft: PostDraft) -> Optional[Path]:
+        """Return local path to card art (README screenshot or OG fallback)."""
+        from github_radar.image_pick import is_good_card_art, og_image_url, pick_readme_image
 
         repo = draft.repo
         slug = repo.full_name.replace("/", "_")
+        og_url = og_image_url(repo)
 
-        image_url = draft.image_url
-        if not image_url and draft.readme:
-            image_url = pick_readme_image(draft.readme, repo, http_client=self._http)
+        candidates: list[tuple[str, str]] = []
+        seen_urls: set[str] = set()
 
-        if not image_url:
-            image_url = og_image_url(repo)
-            logger.info("No README screenshot for %s, using OG card", repo.full_name)
+        def _add(url: str | None, cache_name: str) -> None:
+            if not url or url in seen_urls:
+                return
+            seen_urls.add(url)
+            candidates.append((url, cache_name))
 
-        path = self._download_image(image_url, slug)
-        if path is None and image_url != og_image_url(repo):
-            path = self._download_image(og_image_url(repo), f"{slug}_og")
+        _add(draft.image_url, slug)
+        if draft.readme:
+            _add(pick_readme_image(draft.readme, repo, http_client=self._http), slug)
+        _add(og_url, f"{slug}_og")
 
-        art_class = ""
-        if path and path.exists():
-            art_class = self._art_fit_class(path)
+        fallback: Optional[Path] = None
+        for url, cache_name in candidates:
+            path = self._download_image(url, cache_name)
+            if not path or not path.exists():
+                continue
+            data = path.read_bytes()
+            if is_good_card_art(data):
+                if url == og_url and len(candidates) > 1:
+                    logger.info("Using OG card for %s", repo.full_name)
+                return path
+            if url == og_url:
+                fallback = path
+            else:
+                logger.info("Rejected card art for %s: %s", repo.full_name, url[:96])
 
-        return path, art_class
-
-    def _art_fit_class(self, image_path: Path) -> str:
-        try:
-            from PIL import Image
-
-            with Image.open(image_path) as img:
-                w, h = img.size
-                if h > 0 and (w / h) >= CONTAIN_RATIO:
-                    return "art-contain"
-        except Exception:
-            pass
-        return ""
+        if fallback and fallback.exists():
+            return fallback
+        return self._download_image(og_url, f"{slug}_og")
 
     def _screenshot_html(self, image_path: Optional[Path]) -> str:
         if not image_path or not image_path.exists():
@@ -226,7 +240,9 @@ class SlideRenderer:
             "gif": "image/gif",
             "webp": "image/webp",
         }.get(ext, "image/png")
-        return f'<img src="data:{mime};base64,{data}" alt="" />'
+        img_class = "art-cover-center" if "_og" in image_path.stem else ""
+        cls_attr = f' class="{img_class}"' if img_class else ""
+        return f'<img{cls_attr} src="data:{mime};base64,{data}" alt="" />'
 
     def _build_html(self, draft: PostDraft, fmt: str) -> str:
         fmt = normalize_slide_format(fmt)
@@ -239,7 +255,7 @@ class SlideRenderer:
             accent_color="#6B7280",
             is_legendary=False,
         )
-        screenshot, art_class = self._resolve_screenshot(draft)
+        screenshot = self._resolve_screenshot(draft)
         bullets = draft.slide_bullets or ["", "", ""]
         license_str = format_license(repo.license)
         headline, body = _resolve_card_text(draft)
@@ -252,7 +268,6 @@ class SlideRenderer:
             "accent_color": rarity.accent_color,
             "card_rarity_classes": _rarity_card_classes(rarity),
             "format_class": "format-reel" if fmt == "reel" else "format-carousel",
-            "art_window_class": art_class,
             "brand_name": html.escape(self._config.brand_name),
             "brand_handle": html.escape(self._config.brand_handle),
             "brand_tagline": html.escape(self._config.brand_tagline),
@@ -292,7 +307,7 @@ class SlideRenderer:
         if output_path is None:
             when = folder_when or draft.published_at
             date_dir, time_dir = slide_folder_parts(when, self._config.timezone)
-            folder_name = FORMAT_FOLDERS.get(fmt, "карусель")
+            folder_name = FORMAT_FOLDERS.get(fmt, "carousel")
             folder = self._config.slide_dir / folder_name / date_dir / time_dir
             folder.mkdir(parents=True, exist_ok=True)
             slug = draft.repo.full_name.replace("/", "_")
@@ -314,8 +329,13 @@ class SlideRenderer:
                 device_scale_factor=1,
             )
             page.goto(work_html.resolve().as_uri(), wait_until="load", timeout=60_000)
-            page.locator(".card").screenshot(path=str(output_path), type="png")
+            card = page.locator(".card")
+            card.screenshot(
+                path=str(output_path),
+                type="png",
+            )
             page.close()
+            _verify_png_size(output_path, width, height)
         finally:
             if owns_browser:
                 browser.close()
@@ -382,7 +402,9 @@ def render_test_card(
     )
     renderer = SlideRenderer(config)
     try:
-        out = output or (config.slide_dir / f"test_card_{normalize_slide_format(fmt)}.png")
+        out = output or (
+            config.slide_dir / SAMPLES_DIR / f"test_card_{normalize_slide_format(fmt)}.png"
+        )
         out.parent.mkdir(parents=True, exist_ok=True)
         return renderer.render_one(draft, fmt=fmt, output_path=out)
     finally:

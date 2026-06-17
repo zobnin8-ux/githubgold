@@ -167,6 +167,68 @@ def _parse_channel_id(raw: str) -> str:
     return str(channel_id)
 
 
+ENV_KNOWN: frozenset[str] = frozenset(
+    {
+        "TELEGRAM_BOT_TOKEN",
+        "TELEGRAM_CHANNEL_ID",
+        "TELEGRAM_CHANNEL",
+        "TELEGRAM_ADMIN_USER_ID",
+        "GITHUB_TOKEN",
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_MODEL",
+        "POSTS_PER_RUN",
+        "HYPE_UTILITY_RATIO",
+        "MIN_STARS",
+        "STRICT_NO_LIBS",
+        "PREFILTER_LIMIT",
+        "OWNER_BOOSTLIST",
+        "HOT_TRENDS",
+        "MASS_APPEAL_KEYWORDS",
+        "NICHE_PENALTY_KEYWORDS",
+        "TOPICS",
+        "DB_PATH",
+        "LOG_PATH",
+        "README_SCAN_LIMIT",
+        "MAKE_SLIDES",
+        "SLIDE_FORMATS",
+        "SLIDE_DIR",
+        "TIMEZONE",
+        "TEMPLATES_DIR",
+        "BRAND_NAME",
+        "BRAND_HANDLE",
+        "BRAND_TAGLINE",
+        "FRAME_GOLD",
+        "PAPER_BG",
+        "RARITY_THRESHOLDS",
+    }
+)
+
+ENV_DEPRECATED: dict[str, str] = {
+    "EXCLUDE_LISTS": "removed in v5 — no effect",
+    "STRICT_TOOLS_ONLY": "renamed to STRICT_NO_LIBS in v5",
+    "TELEGRAM_CHANNEL": "use TELEGRAM_CHANNEL_ID",
+}
+
+
+def find_stale_env_vars(env_path: str | Path | None = None) -> list[tuple[str, str]]:
+    """Return (key, reason) for keys in .env that load_config does not read."""
+    from dotenv import dotenv_values
+
+    path = Path(env_path) if env_path else Path(".env")
+    if not path.is_file():
+        return []
+
+    stale: list[tuple[str, str]] = []
+    for key, value in dotenv_values(path).items():
+        if not key or value is None or not str(value).strip():
+            continue
+        if key in ENV_KNOWN:
+            continue
+        reason = ENV_DEPRECATED.get(key, "not used by github_radar v5")
+        stale.append((key, reason))
+    return sorted(stale, key=lambda x: x[0])
+
+
 def load_config(env_path: str | Path | None = None) -> Config:
     if env_path:
         load_dotenv(env_path)

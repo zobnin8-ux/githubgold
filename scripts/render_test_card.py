@@ -24,7 +24,9 @@ def main() -> int:
 
     ssl_verify()
     config = load_config()
-    out = config.slide_dir / "test_card_carousel.png"
+    from github_radar.slides import SAMPLES_DIR
+
+    out = config.slide_dir / SAMPLES_DIR / "test_card_carousel.png"
     print(f"Rendering {args.repo} -> {out}")
     path = render_test_card(config, output=out, full_name=args.repo)
     print(f"Done: {path}")

@@ -17,7 +17,9 @@ def main() -> int:
     ssl_verify()
     config = load_config()
     repo = "Stirling-Tools/Stirling-PDF"
-    out_dir = config.slide_dir / "samples"
+    from github_radar.slides import SAMPLES_DIR
+
+    out_dir = config.slide_dir / SAMPLES_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
 
     common_rarity = compute_rarity(0.5, config)

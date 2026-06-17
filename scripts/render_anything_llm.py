@@ -21,7 +21,9 @@ def main() -> int:
     ssl_verify()
     config = load_config()
     repo = "Mintplex-Labs/anything-llm"
-    out_dir = config.slide_dir / "samples"
+    from github_radar.slides import SAMPLES_DIR
+
+    out_dir = config.slide_dir / SAMPLES_DIR
 
     draft = build_demo_draft(config, repo, hype=8.5, card_number=1)
 
