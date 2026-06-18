@@ -14,7 +14,7 @@ from typing import Iterator
 
 logger = logging.getLogger("github_radar.lock")
 
-LOCK_FILES = ("radar.lock", "cycle.lock", "bot.launch.lock")
+LOCK_FILES = ("radar.lock", "cycle.lock", "bot.launch.lock", "bot.instance.lock")
 
 
 def _pid_alive(pid: int) -> bool:

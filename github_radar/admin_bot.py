@@ -14,7 +14,7 @@ from github_radar.admin_store import get_admin_chat_id, load_admin, save_admin
 from github_radar.config import Config, load_config
 from github_radar.http_ssl import ssl_verify
 from github_radar.logging_setup import setup_logging
-from github_radar.process_lock import find_radar_main_pids, stop_everything
+from github_radar.process_lock import ProcessLock, find_radar_main_pids, stop_everything
 from github_radar.progress import (
     CycleProgress,
     format_telegram,
@@ -22,6 +22,7 @@ from github_radar.progress import (
     progress_path,
     read,
 )
+from github_radar.startup_check import run_startup_check
 from github_radar.storage import Storage
 from github_radar.telegram_api import TelegramApi
 
@@ -30,8 +31,8 @@ logger = logging.getLogger("github_radar.admin_bot")
 HELP_TEXT = """🏆 Золото GitHub — команды
 
 /status — статус, посты сегодня, режим
-/run — опубликовать сейчас (прогресс в этом чате)
-/dry — тест без канала (прогресс в этом чате)
+/run — опубликовать сейчас (прогресс-бар)
+/dry — тест без канала (прогресс-бар)
 /today — что вышло в канал сегодня
 /stats — всего опубликовано в базе
 /stop — остановить только бот
@@ -315,6 +316,7 @@ def handle_command(
         _start_cycle_async(api, chat_id, config, dry_run=True)
     elif cmd == "/stopall":
         global _cycle_running
+        api.send_message(chat_id, "🛑 Полная остановка…")
         subprocess_stopped = _stop_cycle_subprocess()
         result = stop_everything(config.db_path.parent)
         _cycle_running = False
@@ -348,20 +350,22 @@ def handle_command(
             "🛑 Полная остановка.\n\n"
             + "\n".join(parts)
             + f"\n\n{verify}\n\n"
-            "Запуск снова: Zoloto GitHub.lnk в D:\\treasure",
+            "Запуск снова: нажми ярлык Zoloto GitHub.lnk — он перезапустит бота и пришлёт прогресс в Telegram.",
         )
-        time.sleep(0.4)
-        return True
+        time.sleep(0.6)
+        api.close()
+        os._exit(0)
     elif cmd == "/stop":
         api.send_message(
             chat_id,
             "🛑 Останавливаю бот.\n\n"
             "Радар (main) продолжит работу, если запущен отдельно.\n"
             "Остановить всё: /stopall\n\n"
-            "Запуск снова: Zoloto GitHub.lnk в папке D:\\treasure",
+            "Запуск снова: нажми ярлык Zoloto GitHub.lnk — он перезапустит бота.",
         )
-        time.sleep(0.4)
-        return True
+        time.sleep(0.6)
+        api.close()
+        os._exit(0)
     elif cmd.startswith("/"):
         api.send_message(chat_id, "Неизвестная команда. Список: /help")
 
@@ -385,15 +389,7 @@ def send_startup_to_admin(api: TelegramApi, config: Config) -> bool:
             "Укажите TELEGRAM_ADMIN_USER_ID в .env или напишите боту /start в личку"
         )
         return False
-
-    startup = "✅ Золото GitHub — бот запущен!\n\n" + HELP_TEXT
-    for attempt in range(1, 4):
-        if api.send_message(chat_id, startup):
-            logger.info("Startup + commands sent to Telegram (chat %s)", chat_id)
-            return True
-        logger.warning("Failed to send startup message, attempt %d/3", attempt)
-        time.sleep(2)
-    return False
+    return run_startup_check(api, config, chat_id)
 
 
 def run_admin_bot() -> None:
@@ -405,17 +401,26 @@ def run_admin_bot() -> None:
         logger.error("TELEGRAM_BOT_TOKEN not set")
         return
 
+    instance_lock = ProcessLock(config.db_path.parent / "bot.instance.lock")
+    if not instance_lock.acquire():
+        logger.error("Another bot instance is already running")
+        return
+
     api = TelegramApi(config.telegram_bot_token)
-    api.delete_webhook()
-    api.set_my_commands()
-    load_admin()
-
-    send_startup_to_admin(api, config)
-
-    offset = 0
-    logger.info("Telegram admin bot listening...")
-
     try:
+        api.delete_webhook()
+        api.set_my_commands()
+        load_admin()
+
+        chat_id = get_admin_chat_id(config.telegram_admin_user_id)
+        if chat_id is not None:
+            api.send_message(chat_id, "🔄 Запуск бота…")
+
+        send_startup_to_admin(api, config)
+
+        offset = 0
+        logger.info("Telegram admin bot listening...")
+
         while True:
             try:
                 updates = api.get_updates(offset)
@@ -442,3 +447,4 @@ def run_admin_bot() -> None:
     finally:
         _cleanup_launch_lock(config)
         api.close()
+        instance_lock.release()

@@ -28,15 +28,17 @@ def _escape(text: str) -> str:
     return html.escape(text, quote=False)
 
 
-def _build_hashtags(repo) -> str:
+def _build_hashtags(repo, *, is_weird: bool = False) -> str:
     tags: list[str] = []
+    if is_weird:
+        tags.append("#дичь")
     if repo.language:
         tags.append(f"#{repo.language.lower().replace(' ', '')}")
     for topic in repo.topics[:2]:
         tag = topic.lower().replace("-", "").replace("_", "")
         if tag and f"#{tag}" not in tags:
             tags.append(f"#{tag}")
-    return " ".join(tags[:3])
+    return " ".join(tags[:4] if is_weird else tags[:3])
 
 
 def _truncate_text(text: str, max_len: int) -> str:
@@ -47,16 +49,31 @@ def _truncate_text(text: str, max_len: int) -> str:
 
 def build_caption(draft: PostDraft) -> str:
     repo = draft.repo
-    hashtags = _build_hashtags(repo)
     lang = repo.language or "—"
+    hashtags = _build_hashtags(repo, is_weird=draft.is_weird)
 
+    if draft.is_weird:
+        marker = "🃏 <b>Дичь дня</b>\n\n"
+        header = f"<b>{_escape(repo.full_name)}</b>\n\n"
+        footer = (
+            f"\n\n⭐ {repo.stars}  ·  🍴 {repo.forks}  ·  {_escape(lang)}\n\n"
+            f'<a href="{repo.html_url}">Открыть на GitHub</a>'
+        )
+        if hashtags:
+            footer += f"\n{hashtags}"
+        overhead = len(marker) + len(header) + len(footer)
+        text_budget = CAPTION_LIMIT - overhead - 10
+        body = _truncate_text(_escape(draft.text_ru), max(text_budget, 80))
+        return f"{marker}{header}{body}{footer}"
+
+    hashtags_line = _build_hashtags(repo)
     footer = (
         f"\n\n⭐ {repo.stars}  ·  🍴 {repo.forks}  ·  🐛 {repo.open_issues}  ·  "
         f"{_escape(lang)}\n\n"
         f'<a href="{repo.html_url}">Открыть на GitHub</a>'
     )
-    if hashtags:
-        footer += f"\n{hashtags}"
+    if hashtags_line:
+        footer += f"\n{hashtags_line}"
 
     header = f"<b>{_escape(repo.full_name)}</b>\n\n"
     overhead = len(header) + len(footer)
