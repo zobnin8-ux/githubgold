@@ -378,12 +378,12 @@
       line-height: 1.2;
       color: var(--muted);
       letter-spacing: 0.01em;
-      align-self: end;
+      align-self: start;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
       flex-shrink: 0;
-      margin-top: 4px;
+      margin-top: 0;
     }
 
     .stats-line .accent {
@@ -579,32 +579,30 @@
     </footer>
   </div>
   <script>
-    (function fitCardCopy() {
+    window.fitCardCopy = function fitCardCopy() {
       const card = document.querySelector('.card');
       const block = document.querySelector('.description-block');
       const headline = document.querySelector('.slide-headline');
       const body = document.querySelector('.slide-body');
-      const stats = document.querySelector('.stats-line');
-      if (!card || !block || !headline || !body || !stats) return;
+      if (!card || !block || !headline || !body) return { ok: false };
 
       const isReel = card.classList.contains('format-reel');
-      const minBody = 36;
-      const minHead = 40;
+      const minBody = 28;
+      const minHead = 32;
       let bodyPx = isReel ? 48 : 44;
       let headPx = isReel ? 54 : 50;
 
-      function gapOk() {
-        const br = block.getBoundingClientRect();
-        const sr = stats.getBoundingClientRect();
-        return sr.top - br.bottom >= 10;
+      function blockOverflow() {
+        return block.scrollHeight > block.clientHeight + 2;
+      }
+
+      function bodyOverflow() {
+        if (body.classList.contains('truncated')) return false;
+        return body.scrollHeight > body.clientHeight + 2;
       }
 
       function contentOverflow() {
-        return (
-          block.scrollHeight > block.clientHeight + 2 ||
-          body.scrollHeight > body.clientHeight + 2 ||
-          !gapOk()
-        );
+        return blockOverflow() || bodyOverflow();
       }
 
       function applySizes() {
@@ -613,6 +611,8 @@
         body.classList.remove('truncated');
         body.style.webkitLineClamp = '';
         body.style.display = '';
+        headline.style.display = '';
+        headline.style.webkitLineClamp = '';
       }
 
       applySizes();
@@ -622,9 +622,15 @@
         applySizes();
       }
 
+      if (contentOverflow() && headPx > minHead) {
+        headline.style.display = '-webkit-box';
+        headline.style.webkitBoxOrient = 'vertical';
+        headline.style.webkitLineClamp = '2';
+      }
+
       if (contentOverflow()) {
         body.classList.add('truncated');
-        let lines = 8;
+        let lines = isReel ? 10 : 8;
         while (contentOverflow() && lines > 2) {
           lines -= 1;
           body.style.display = '-webkit-box';
@@ -633,10 +639,13 @@
         }
       }
 
+      const fits = !contentOverflow();
       document.body.dataset.fitBodyPx = String(bodyPx);
-      document.body.dataset.textFits = contentOverflow() ? '0' : '1';
+      document.body.dataset.textFits = fits ? '1' : '0';
       document.body.dataset.textTruncated = body.classList.contains('truncated') ? '1' : '0';
-    })();
+      return { ok: true, fits, bodyPx, headPx, truncated: body.classList.contains('truncated') };
+    };
+    window.fitCardCopy();
   </script>
 </body>
 </html>

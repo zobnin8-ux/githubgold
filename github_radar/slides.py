@@ -19,6 +19,7 @@ from github_radar.card_qa import (
     check_png_size,
     evaluate_dom_qa,
     finalize_qa_result,
+    prepare_card_page,
 )
 from github_radar.config import Config
 from github_radar.curator import BODY_MAX, HEADLINE_MAX
@@ -373,6 +374,7 @@ class SlideRenderer:
                 device_scale_factor=1,
             )
             page.goto(work_html.resolve().as_uri(), wait_until="load", timeout=60_000)
+            prepare_card_page(page)
             if qa:
                 dom_qa = evaluate_dom_qa(page)
             card = page.locator(".card")

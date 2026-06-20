@@ -62,13 +62,13 @@ def _print_weird_status(
     )
     if weird_slot:
         if weird_draft:
-            print(f"  Slot: 1 joker → {weird_draft.repo.full_name}")
+            print(f"  Slot: 1 joker -> {weird_draft.repo.full_name}")
             print(f"  Headline: {weird_draft.slide_headline}")
             print(f"  Body: {weird_draft.slide_body}")
         else:
-            print("  Slot: skipped (reserve empty, quality-gate)")
+            print("  Slot: skipped (reserve empty / quality-gate) -> extra hype")
     else:
-        print("  Slot: daily quota filled — this run is hype-only")
+        print("  Slot: daily quota filled - this run is hype-only")
 
 
 def run_cycle(dry_run: bool = False) -> int:
@@ -159,6 +159,25 @@ def run_cycle(dry_run: bool = False) -> int:
                 )
             if weird_draft:
                 drafts.append(weird_draft)
+
+        if (
+            config.weird_enabled
+            and weird_slot
+            and not weird_draft
+            and len(drafts) < config.posts_per_run
+            and funnel
+        ):
+            missing = config.posts_per_run - len(drafts)
+            used_ids = {d.repo.id for d in drafts}
+            remaining = [c for c in funnel if c.repo.id not in used_ids]
+            if remaining:
+                extra = curator.curate(remaining, count=missing)
+                if extra:
+                    logger.info(
+                        "Weird slot empty - filled %d hype post(s) instead",
+                        len(extra),
+                    )
+                    drafts.extend(extra)
 
         if config.weird_enabled:
             _print_weird_status(
@@ -258,7 +277,7 @@ def run_cycle(dry_run: bool = False) -> int:
                 renderer = SlideRenderer(config)
                 try:
                     paths = renderer.render_batch(published)
-                    logger.info("Rendered %d slide(s)", len(paths))
+                    logger.info("Saved %d card(s) to disk", len(paths))
                 finally:
                     renderer.close()
 

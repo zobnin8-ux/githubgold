@@ -127,25 +127,35 @@ def classify_art_from_html(art: str) -> str:
     return "unknown"
 
 
+def prepare_card_page(page: Any) -> None:
+    """Wait for fonts and run fit-text before QA/screenshot."""
+    page.wait_for_load_state("load")
+    page.evaluate("() => document.fonts.ready")
+    page.evaluate(
+        """async () => {
+        await document.fonts.ready;
+        if (typeof window.fitCardCopy === 'function') window.fitCardCopy();
+    }"""
+    )
+
+
 def evaluate_dom_qa(page: Any) -> dict[str, Any]:
     """Run in-browser checks after fit-text script."""
     return page.evaluate(
         """() => {
         const block = document.querySelector('.description-block');
-        const stats = document.querySelector('.stats-line');
         const body = document.querySelector('.slide-body');
         const artImg = document.querySelector('.art-window img');
         const plaque = document.querySelector('.art-brand-plaque');
         const missing = document.querySelector('.art-missing');
-        if (!block || !stats || !body) {
+        if (!block || !body) {
             return { ok: false, reason: 'missing nodes' };
         }
-        const br = block.getBoundingClientRect();
-        const sr = stats.getBoundingClientRect();
-        const gap = sr.top - br.bottom;
         const blockOverflow = block.scrollHeight > block.clientHeight + 2;
-        const bodyOverflow = body.scrollHeight > body.clientHeight + 2;
-        const textFits = gap >= 10 && !blockOverflow && !bodyOverflow;
+        const bodyOverflow = !body.classList.contains('truncated')
+            && body.scrollHeight > body.clientHeight + 2;
+        const datasetFits = document.body.dataset.textFits === '1';
+        const textFits = datasetFits && !blockOverflow && !bodyOverflow;
         let art = 'missing';
         if (artImg) art = 'screenshot';
         else if (plaque) art = 'plaque';
@@ -153,7 +163,6 @@ def evaluate_dom_qa(page: Any) -> dict[str, Any]:
         return {
             ok: true,
             text_fits: textFits,
-            gap_px: gap,
             body_font_px: parseFloat(getComputedStyle(body).fontSize) || 0,
             truncated: body.classList.contains('truncated'),
             art_type: art,
@@ -176,8 +185,8 @@ def finalize_qa_result(
     if not draft.is_weird and result.art_type == "missing":
         result.errors.append("хайп: нет арта")
 
-    if result.body_font_px > 0 and result.body_font_px < 36:
-        result.errors.append(f"body font {result.body_font_px}px < 36")
+    if result.body_font_px > 0 and result.body_font_px < 28:
+        result.errors.append(f"body font {result.body_font_px}px < 28")
 
     if fresh_repo is not None:
         ok, detail = stats_match(draft.repo, fresh_repo)

@@ -1,4 +1,4 @@
-# Zoloto GitHub — ярлык запускает бота. Не убивает уже работающего (двойной клик = гонка).
+# Zoloto GitHub launcher - starts admin bot (ASCII-safe for Windows PowerShell).
 $ErrorActionPreference = "Stop"
 
 Add-Type -AssemblyName System.Windows.Forms
@@ -38,7 +38,7 @@ if (-not (Test-Path $DataDir)) {
 if (Test-Path $LaunchingFlag) {
   $age = (Get-Date) - (Get-Item $LaunchingFlag).LastWriteTime
   if ($age.TotalSeconds -lt 45) {
-    Show-Info "Запуск уже идёт — подождите 10–15 сек и проверьте Telegram.`n`nТам появится прогресс-бар."
+    Show-Info "Zapusk uzhe idet. Podozhdite 10-15 sek i proverte Telegram.`n`nTam poyavitsya progress-bar."
     exit 0
   }
   Remove-Item $LaunchingFlag -Force -ErrorAction SilentlyContinue
@@ -47,7 +47,8 @@ if (Test-Path $LaunchingFlag) {
 $bots = @(Get-RadarBots)
 if ($bots.Count -eq 1) {
   $botPid = $bots[0].ProcessId
-  Show-Info "Бот уже работает (PID $botPid).`n`nОткройте Telegram — /status или /run.`n`nПолная остановка: /stopall"
+  $msg = "Bot uzhe rabotaet (PID $botPid).`n`nTelegram: /status ili /run.`n`nPolnaya ostanovka: /stopall"
+  Show-Info $msg
   exit 0
 }
 
@@ -55,8 +56,8 @@ Set-Content -Path $LaunchingFlag -Value (Get-Date -Format "o") -Encoding utf8
 
 try {
   if ($bots.Count -gt 1) {
-    foreach ($proc in $bots) {
-      Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+    foreach ($p in $bots) {
+      Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
     }
     Start-Sleep -Milliseconds 800
   }
@@ -70,18 +71,19 @@ try {
 
   Set-Content -Path $LockFile -Value (Get-Date -Format "o") -Encoding utf8
 
-  $proc = Start-Process -FilePath $Python `
+  Start-Process -FilePath $Python `
     -ArgumentList "-m", "github_radar.bot" `
     -WorkingDirectory $ProjectRoot `
-    -WindowStyle Hidden `
-    -PassThru
+    -WindowStyle Hidden | Out-Null
 
   Start-Sleep -Seconds 4
   $alive = @(Get-RadarBots)
   if ($alive.Count -ge 1) {
-    Show-Info "Бот запущен (PID $($alive[0].ProcessId)).`n`nСмотрите Telegram — через несколько секунд придёт прогресс-бар."
+    $startedPid = $alive[0].ProcessId
+    $msg = "Bot zapuschen (PID $startedPid).`n`nSmotrite Telegram - cherez neskolko sekund budet progress-bar."
+    Show-Info $msg
   } else {
-    Show-Error "Бот не поднялся. Откройте data\radar.log — последние строки.`n`nИли напишите боту /start в личку."
+    Show-Error "Bot ne podnyalsya.`n`nOtkroyte data\radar.log`n`nIli napishite botu /start v lichku."
   }
 }
 finally {

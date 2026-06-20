@@ -285,6 +285,12 @@ def purge_weird_reserve_no_visual(
             removed += 1
             logger.info("Weird reserve purge (repo gone): %s", row["full_name"])
             continue
+        try:
+            payload = json.loads(row["payload"])
+        except (json.JSONDecodeError, TypeError):
+            payload = {}
+        if payload.get("image_url") and payload.get("has_real_screenshot"):
+            continue
         readme = readme_fetcher.fetch(repo)
         if _weird_visual_url(readme, repo, readme_fetcher):
             continue
@@ -330,13 +336,19 @@ def _draft_from_reserve_row(
     if is_nsfw_or_offensive(fresh, readme):
         logger.info("Weird skip (NSFW/offensive): %s", full_name)
         return None
-    image_url = _weird_visual_url(readme, fresh, readme_fetcher)
+    try:
+        payload = json.loads(row["payload"])
+    except (json.JSONDecodeError, TypeError, KeyError):
+        logger.info("Weird skip (bad reserve payload): %s", full_name)
+        return None
+    stored_url = payload.get("image_url")
+    if stored_url and payload.get("has_real_screenshot"):
+        image_url = stored_url
+    else:
+        image_url = _weird_visual_url(readme, fresh, readme_fetcher)
     if not image_url:
         return None
-    curator = WeirdCurator(config)
-    payload = curator.generate_copy(fresh, readme, image_url)
-    if not payload:
-        return None
+    payload = {**payload, "image_url": image_url}
     return draft_from_payload(fresh, payload, config, readme=readme)
 
 
