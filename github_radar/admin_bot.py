@@ -14,7 +14,12 @@ from github_radar.admin_store import get_admin_chat_id, load_admin, save_admin
 from github_radar.config import Config, load_config
 from github_radar.http_ssl import ssl_verify
 from github_radar.logging_setup import setup_logging
-from github_radar.process_lock import ProcessLock, find_radar_main_pids, stop_everything
+from github_radar.process_lock import (
+    ProcessLock,
+    find_radar_main_pids,
+    purge_stale_locks,
+    stop_everything,
+)
 from github_radar.progress import (
     CycleProgress,
     format_telegram,
@@ -27,6 +32,21 @@ from github_radar.storage import Storage
 from github_radar.telegram_api import TelegramApi
 
 logger = logging.getLogger("github_radar.admin_bot")
+
+_instance_lock: ProcessLock | None = None
+
+
+def _release_instance_lock() -> list[str]:
+    """Release this bot's instance lock and purge any leftover lock files."""
+    global _instance_lock
+    data_dir: Path | None = None
+    if _instance_lock is not None:
+        data_dir = _instance_lock.path.parent
+        _instance_lock.release()
+        _instance_lock = None
+    if data_dir is None:
+        return []
+    return purge_stale_locks(data_dir)
 
 HELP_TEXT = """🏆 Золото GitHub — команды
 
@@ -320,6 +340,9 @@ def handle_command(
         subprocess_stopped = _stop_cycle_subprocess()
         result = stop_everything(config.db_path.parent)
         _cycle_running = False
+        for name in _release_instance_lock():
+            if name not in result.locks_removed:
+                result.locks_removed.append(name)
 
         parts: list[str] = []
         if result.killed_main:
@@ -364,6 +387,7 @@ def handle_command(
             "Запуск снова: нажми ярлык Zoloto GitHub.lnk — он перезапустит бота.",
         )
         time.sleep(0.6)
+        _release_instance_lock()
         api.close()
         os._exit(0)
     elif cmd.startswith("/"):
@@ -401,8 +425,9 @@ def run_admin_bot() -> None:
         logger.error("TELEGRAM_BOT_TOKEN not set")
         return
 
-    instance_lock = ProcessLock(config.db_path.parent / "bot.instance.lock")
-    if not instance_lock.acquire():
+    global _instance_lock
+    _instance_lock = ProcessLock(config.db_path.parent / "bot.instance.lock")
+    if not _instance_lock.acquire():
         logger.error("Another bot instance is already running")
         return
 
@@ -447,4 +472,4 @@ def run_admin_bot() -> None:
     finally:
         _cleanup_launch_lock(config)
         api.close()
-        instance_lock.release()
+        _release_instance_lock()

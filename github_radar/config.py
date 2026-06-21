@@ -163,6 +163,7 @@ class Config:
     weird_accent: str
     weird_badge: str
     weird_topics: list[str]
+    telegram_card_experiment: int
 
     @property
     def timezone(self) -> ZoneInfo:
@@ -215,6 +216,7 @@ ENV_KNOWN: frozenset[str] = frozenset(
         "MAKE_SLIDES",
         "SLIDE_FORMATS",
         "SLIDE_DIR",
+        "TELEGRAM_CARD_EXPERIMENT",
         "TIMEZONE",
         "TEMPLATES_DIR",
         "BRAND_NAME",
@@ -348,6 +350,9 @@ def load_config(env_path: str | Path | None = None) -> Config:
         weird_accent=os.getenv("WEIRD_ACCENT", "#FF3D9A").strip(),
         weird_badge=os.getenv("WEIRD_BADGE", "ДИЧЬ").strip(),
         weird_topics=weird_topics,
+        telegram_card_experiment=max(
+            0, int(os.getenv("TELEGRAM_CARD_EXPERIMENT", "0"))
+        ),
     )
 
 

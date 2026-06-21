@@ -195,19 +195,54 @@ class StopEverythingResult:
     remaining_bots: list[int] = field(default_factory=list)
 
 
-def _remove_locks(data_dir: Path) -> list[str]:
+def _lock_holder_alive(path: Path) -> bool:
+    """True if lock exists and is held by another live process."""
+    if not path.exists():
+        return False
+    pid = _read_lock_pid(path)
+    if pid is None:
+        return False
+    if pid == os.getpid():
+        return False
+    return _pid_alive(pid)
+
+
+def _force_unlink(path: Path, *, retries: int = 5) -> bool:
+    for attempt in range(retries):
+        try:
+            path.unlink()
+            return True
+        except OSError:
+            if attempt < retries - 1:
+                time.sleep(0.1 * (attempt + 1))
+    return False
+
+
+def remove_stale_lock(path: Path) -> bool:
+    """Remove lock file unless another live process holds it."""
+    if not path.exists():
+        return False
+    if _lock_holder_alive(path):
+        return False
+    if _force_unlink(path):
+        logger.info("Removed lock file %s", path)
+        return True
+    logger.warning("Could not remove lock file %s", path)
+    return False
+
+
+def purge_stale_locks(data_dir: Path) -> list[str]:
+    """Remove lock files whose holder is dead (or unreadable)."""
     removed: list[str] = []
     for name in LOCK_FILES:
         lock = data_dir / name
-        if not lock.exists():
-            continue
-        try:
-            lock.unlink()
+        if remove_stale_lock(lock):
             removed.append(name)
-            logger.info("Removed lock file %s", lock)
-        except OSError:
-            logger.warning("Could not remove lock file %s", lock)
     return removed
+
+
+def _remove_locks(data_dir: Path) -> list[str]:
+    return purge_stale_locks(data_dir)
 
 
 def _kill_pids(pids: list[int], label: str) -> list[int]:

@@ -12,6 +12,16 @@ logger = logging.getLogger("github_radar.progress")
 
 PHASES = ("trending", "search", "readme", "curator", "publish", "slides")
 
+CARD_PHASES = (
+    "trending",
+    "search",
+    "readme",
+    "curator",
+    "card_render",
+    "card_publish",
+    "card_reel",
+)
+
 PHASE_LABELS = {
     "trending": "Trending",
     "search": "Сбор GitHub",
@@ -19,6 +29,9 @@ PHASE_LABELS = {
     "curator": "Куратор (Claude)",
     "publish": "Публикация",
     "slides": "Карточки",
+    "card_render": "Carousel + QA",
+    "card_publish": "Telegram (карточка)",
+    "card_reel": "Reel (Instagram)",
     "done": "Готово",
     "error": "Ошибка",
     "idle": "Ожидание",
@@ -55,6 +68,8 @@ class CycleProgress:
                 "current": 0,
                 "total": 0,
                 "detail": "",
+                "telegram_card_mode": False,
+                "card_experiment_remaining": 0,
                 "started_at": datetime.now(timezone.utc).isoformat(),
             }
         )
@@ -66,31 +81,41 @@ class CycleProgress:
         current: int = 0,
         total: int = 0,
         detail: str = "",
+        telegram_card_mode: bool | None = None,
+        card_experiment_remaining: int | None = None,
     ) -> None:
         data = read(self.path) or {}
         if data.get("status") not in ("running", None):
             return
-        self._write(
-            {
-                "status": "running",
-                "dry_run": data.get("dry_run", False),
-                "phase": phase,
-                "current": current,
-                "total": total,
-                "detail": detail[:120],
-                "started_at": data.get("started_at"),
-            }
-        )
+        payload: dict[str, Any] = {
+            "status": "running",
+            "dry_run": data.get("dry_run", False),
+            "phase": phase,
+            "current": current,
+            "total": total,
+            "detail": detail[:120],
+            "telegram_card_mode": data.get("telegram_card_mode", False),
+            "card_experiment_remaining": data.get("card_experiment_remaining", 0),
+            "started_at": data.get("started_at"),
+        }
+        if telegram_card_mode is not None:
+            payload["telegram_card_mode"] = telegram_card_mode
+        if card_experiment_remaining is not None:
+            payload["card_experiment_remaining"] = card_experiment_remaining
+        self._write(payload)
 
     def done(self, *, published: int = 0, detail: str = "") -> None:
+        prev = read(self.path) if self.path.exists() else {}
         self._write(
             {
                 "status": "done",
-                "dry_run": read(self.path).get("dry_run", False) if self.path.exists() else False,
+                "dry_run": prev.get("dry_run", False),
                 "phase": "done",
                 "current": published,
                 "total": published,
                 "detail": detail,
+                "telegram_card_mode": prev.get("telegram_card_mode", False),
+                "card_experiment_remaining": prev.get("card_experiment_remaining", 0),
             }
         )
 
@@ -113,6 +138,8 @@ class CycleProgress:
                 "current": 0,
                 "total": 0,
                 "detail": "",
+                "telegram_card_mode": False,
+                "card_experiment_remaining": 0,
             }
         )
 
@@ -133,9 +160,18 @@ def update(
     current: int = 0,
     total: int = 0,
     detail: str = "",
+    telegram_card_mode: bool | None = None,
+    card_experiment_remaining: int | None = None,
 ) -> None:
     if _active is not None:
-        _active.update(phase, current=current, total=total, detail=detail)
+        _active.update(
+            phase,
+            current=current,
+            total=total,
+            detail=detail,
+            telegram_card_mode=telegram_card_mode,
+            card_experiment_remaining=card_experiment_remaining,
+        )
 
 
 def read(path: Path) -> dict[str, Any]:
@@ -167,6 +203,7 @@ def _phase_line(
     current: int,
     total: int,
     detail: str,
+    phase_order: tuple[str, ...],
 ) -> str:
     label = PHASE_LABELS.get(key, key)
     if key == active_phase:
@@ -177,9 +214,8 @@ def _phase_line(
         else:
             suffix = ""
         return f"▶️ {_bar(current, total)}  {label}{suffix}"
-    order = list(PHASES)
-    if key in order and active_phase in order:
-        if order.index(key) < order.index(active_phase):
+    if key in phase_order and active_phase in phase_order:
+        if phase_order.index(key) < phase_order.index(active_phase):
             return f"✅ {label}"
     return f"░░░░░░░░░░  {label}  —"
 
@@ -191,6 +227,9 @@ def format_telegram(data: dict[str, Any], *, title: str | None = None) -> str:
     total = int(data.get("total") or 0)
     detail = str(data.get("detail") or "")
     dry = data.get("dry_run", False)
+    card_mode = bool(data.get("telegram_card_mode"))
+    exp_left = int(data.get("card_experiment_remaining") or 0)
+    phase_order = CARD_PHASES if card_mode else PHASES
 
     if status == "idle" or not data:
         return "🟢 Радар свободен"
@@ -202,14 +241,23 @@ def format_telegram(data: dict[str, Any], *, title: str | None = None) -> str:
             title = "❌ Ошибка цикла"
         elif dry:
             title = "🔄 Dry-run"
+        elif card_mode:
+            title = f"🔄 Боевой цикл · карточки ({exp_left} ост.)"
         else:
             title = "🔄 Боевой цикл"
 
     lines = [title, ""]
     if status == "running":
-        for key in PHASES:
+        for key in phase_order:
             lines.append(
-                _phase_line(key, phase, current, total, detail if key == phase else "")
+                _phase_line(
+                    key,
+                    phase,
+                    current,
+                    total,
+                    detail if key == phase else "",
+                    phase_order,
+                )
             )
         if detail and phase not in ("search", "readme"):
             lines.append("")

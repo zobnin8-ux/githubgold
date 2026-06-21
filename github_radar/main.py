@@ -144,9 +144,12 @@ def run_cycle(dry_run: bool = False) -> int:
 
         update("curator", detail="Claude отбирает и пишет тексты…")
         curator = Curator(config)
+        published_today = storage.published_today(config.timezone)
         drafts: list = []
         if hype_count > 0 and funnel:
-            drafts = curator.curate(funnel, count=hype_count)
+            drafts = curator.curate(
+                funnel, count=hype_count, published_today=published_today
+            )
 
         if config.weird_enabled and weird_slot:
             if dry_run:
@@ -171,7 +174,14 @@ def run_cycle(dry_run: bool = False) -> int:
             used_ids = {d.repo.id for d in drafts}
             remaining = [c for c in funnel if c.repo.id not in used_ids]
             if remaining:
-                extra = curator.curate(remaining, count=missing)
+                diversity_context = published_today + [
+                    {"full_name": d.repo.full_name} for d in drafts
+                ]
+                extra = curator.curate(
+                    remaining,
+                    count=missing,
+                    published_today=diversity_context,
+                )
                 if extra:
                     logger.info(
                         "Weird slot empty - filled %d hype post(s) instead",
@@ -266,22 +276,158 @@ def run_cycle(dry_run: bool = False) -> int:
             if fresh:
                 draft.repo = fresh
 
+        from github_radar.card_experiment import CardExperiment, notify_experiment_finished
+
+        card_experiment = CardExperiment(
+            config.db_path.parent,
+            initial=config.telegram_card_experiment,
+        )
+        card_mode = card_experiment.active
+        experiment_finished = False
+        skipped_qa = 0
+        if card_mode:
+            logger.info(
+                "Telegram card experiment: %d carousel post(s) remaining",
+                card_experiment.remaining,
+            )
+
         publisher = Publisher(config, storage)
         try:
-            published = publisher.publish_all(drafts)
-            logger.info("Cycle complete: published %d posts", len(published))
-
-            if config.make_slides and published:
+            if card_mode:
+                from github_radar.card_qa import CardQAError
                 from github_radar.slides import SlideRenderer
 
+                pending = [
+                    d for d in drafts if not storage.is_published(d.repo.id)
+                ]
+                render_total = max(len(pending), 1)
+                card_ctx = {
+                    "telegram_card_mode": True,
+                    "card_experiment_remaining": card_experiment.remaining,
+                }
+
                 renderer = SlideRenderer(config)
+                ready: list = []
+                skipped_qa = 0
                 try:
-                    paths = renderer.render_batch(published)
-                    logger.info("Saved %d card(s) to disk", len(paths))
+                    for i, draft in enumerate(pending):
+                        update(
+                            "card_render",
+                            current=i,
+                            total=render_total,
+                            detail=f"{draft.repo.full_name} — рендер…",
+                            **card_ctx,
+                        )
+                        try:
+                            path = renderer.render_one(
+                                draft,
+                                fmt="carousel",
+                                fresh_repo=draft.repo,
+                                is_already_published=False,
+                            )
+                            draft.telegram_card_path = path
+                            ready.append(draft)
+                            update(
+                                "card_render",
+                                current=i + 1,
+                                total=render_total,
+                                detail=f"{draft.repo.full_name} — QA ok",
+                                **card_ctx,
+                            )
+                        except CardQAError as exc:
+                            skipped_qa += 1
+                            logger.warning(
+                                "Card QA skip publish %s: %s",
+                                exc.repo,
+                                "; ".join(exc.errors),
+                            )
+                            update(
+                                "card_render",
+                                current=i + 1,
+                                total=render_total,
+                                detail=f"пропуск: {exc.repo}",
+                                **card_ctx,
+                            )
                 finally:
                     renderer.close()
 
-            prog.done(published=len(published), detail=f"Постов: {len(published)}")
+                published = publisher.publish_all(
+                    ready,
+                    telegram_card_mode=True,
+                    progress_phase="card_publish",
+                )
+                for _ in published:
+                    remaining, finished = card_experiment.record_publish()
+                    card_ctx["card_experiment_remaining"] = remaining
+                    if finished:
+                        experiment_finished = True
+
+                if config.make_slides and published:
+                    reel_formats = [
+                        f
+                        for f in config.slide_formats
+                        if f.strip().lower() in ("reel", "reels")
+                    ]
+                    if reel_formats:
+                        renderer = SlideRenderer(config)
+                        try:
+                            for i, draft in enumerate(published):
+                                update(
+                                    "card_reel",
+                                    current=i,
+                                    total=len(published),
+                                    detail=draft.repo.full_name,
+                                    **card_ctx,
+                                )
+                                try:
+                                    renderer.render_one(
+                                        draft,
+                                        fmt="reel",
+                                        fresh_repo=draft.repo,
+                                        is_already_published=True,
+                                    )
+                                except CardQAError as exc:
+                                    logger.warning(
+                                        "Reel QA failed (already published) %s: %s",
+                                        exc.repo,
+                                        "; ".join(exc.errors),
+                                    )
+                                update(
+                                    "card_reel",
+                                    current=i + 1,
+                                    total=len(published),
+                                    detail=draft.repo.full_name,
+                                    **card_ctx,
+                                )
+                        finally:
+                            renderer.close()
+
+                if experiment_finished:
+                    notify_experiment_finished(config)
+            else:
+                published = publisher.publish_all(drafts)
+                logger.info("Cycle complete: published %d posts", len(published))
+
+                if config.make_slides and published:
+                    from github_radar.slides import SlideRenderer
+
+                    renderer = SlideRenderer(config)
+                    try:
+                        paths = renderer.render_batch(published)
+                        logger.info("Saved %d card(s) to disk", len(paths))
+                    finally:
+                        renderer.close()
+
+            if card_mode:
+                logger.info("Cycle complete: published %d posts (card mode)", len(published))
+
+            detail = f"Постов: {len(published)}"
+            if card_mode:
+                left = card_experiment.remaining
+                detail += f" (эксп. карточек: осталось {left})"
+                if skipped_qa:
+                    detail += f", QA пропуск: {skipped_qa}"
+            prog.done(published=len(published), detail=detail)
             return len(published)
         finally:
             publisher.close()

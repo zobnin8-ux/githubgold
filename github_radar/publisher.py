@@ -8,6 +8,8 @@ import time
 from datetime import datetime, timezone
 from typing import Optional
 
+from pathlib import Path
+
 import httpx
 
 from github_radar.config import Config
@@ -45,6 +47,15 @@ def _truncate_text(text: str, max_len: int) -> str:
     if len(text) <= max_len:
         return text
     return text[: max_len - 1].rstrip() + "…"
+
+
+def build_short_caption(draft: PostDraft) -> str:
+    """One-line hook + GitHub link (Telegram card experiment)."""
+    line = (draft.slide_headline or draft.slide_body or draft.text_ru).strip()
+    line = _truncate_text(_escape(line), 200)
+    prefix = "🃏 <b>Дичь дня</b>\n\n" if draft.is_weird else ""
+    link = f'<a href="{draft.repo.html_url}">Открыть на GitHub</a>'
+    return f"{prefix}<b>{line}</b>\n\n{link}"
 
 
 def build_caption(draft: PostDraft) -> str:
@@ -96,6 +107,30 @@ class Publisher:
     def _og_image_url(self, repo) -> str:
         return f"https://opengraph.githubassets.com/1/{repo.owner}/{repo.name}"
 
+    def _send_photo_file(
+        self, chat_id: str, photo_path: Path, caption: str
+    ) -> Optional[int]:
+        with photo_path.open("rb") as photo_file:
+            response = self._client.post(
+                f"{self._base}/sendPhoto",
+                data={
+                    "chat_id": chat_id,
+                    "caption": caption,
+                    "parse_mode": "HTML",
+                },
+                files={"photo": (photo_path.name, photo_file, "image/png")},
+            )
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("ok"):
+                return data["result"]["message_id"]
+        logger.warning(
+            "sendPhoto (file) failed: %s %s",
+            response.status_code,
+            response.text[:200],
+        )
+        return None
+
     def _send_photo(self, chat_id: str, photo_url: str, caption: str) -> Optional[int]:
         response = self._client.post(
             f"{self._base}/sendPhoto",
@@ -130,29 +165,37 @@ class Publisher:
         logger.error("sendMessage failed: %s %s", response.status_code, response.text[:200])
         return None
 
-    def publish_one(self, draft: PostDraft) -> bool:
+    def publish_one(self, draft: PostDraft, *, telegram_card_mode: bool = False) -> bool:
         repo = draft.repo
         if self._storage.is_published(repo.id):
             logger.info("Skipping already published: %s", repo.full_name)
             return False
 
-        caption = build_caption(draft)
         chat_id = self._config.telegram_channel_id
-        og_url = self._og_image_url(repo)
-        readme_image = draft.image_url
-
         message_id: Optional[int] = None
-        if readme_image:
-            message_id = self._send_photo(chat_id, readme_image, caption)
-            if message_id is None:
-                logger.info("README image failed for %s, trying OG card", repo.full_name)
-                message_id = self._send_photo(chat_id, og_url, caption)
-        else:
-            message_id = self._send_photo(chat_id, og_url, caption)
 
-        if message_id is None:
-            logger.info("Falling back to sendMessage for %s", repo.full_name)
-            message_id = self._send_message(chat_id, caption)
+        if telegram_card_mode:
+            card_path = draft.telegram_card_path
+            if not card_path or not card_path.is_file():
+                logger.error("No carousel card for %s, skip publish", repo.full_name)
+                return False
+            caption = build_short_caption(draft)
+            message_id = self._send_photo_file(chat_id, card_path, caption)
+        else:
+            caption = build_caption(draft)
+            og_url = self._og_image_url(repo)
+            readme_image = draft.image_url
+            if readme_image:
+                message_id = self._send_photo(chat_id, readme_image, caption)
+                if message_id is None:
+                    logger.info("README image failed for %s, trying OG card", repo.full_name)
+                    message_id = self._send_photo(chat_id, og_url, caption)
+            else:
+                message_id = self._send_photo(chat_id, og_url, caption)
+
+            if message_id is None:
+                logger.info("Falling back to sendMessage for %s", repo.full_name)
+                message_id = self._send_message(chat_id, caption)
 
         if message_id is None:
             return False
@@ -188,18 +231,25 @@ class Publisher:
         logger.info("Published %s (message_id=%s, card #%s)", repo.full_name, message_id, card_number)
         return True
 
-    def publish_all(self, drafts: list[PostDraft]) -> list[PostDraft]:
+    def publish_all(
+        self,
+        drafts: list[PostDraft],
+        *,
+        telegram_card_mode: bool = False,
+        progress_phase: str = "publish",
+    ) -> list[PostDraft]:
         published: list[PostDraft] = []
         total = len(drafts)
-        update("publish", current=0, total=total, detail="Telegram…")
+        mode = "карточки" if telegram_card_mode else "Telegram"
+        update(progress_phase, current=0, total=total, detail=f"{mode}…")
         for i, draft in enumerate(drafts):
             update(
-                "publish",
+                progress_phase,
                 current=i + 1,
                 total=total,
                 detail=draft.repo.full_name,
             )
-            if self.publish_one(draft):
+            if self.publish_one(draft, telegram_card_mode=telegram_card_mode):
                 published.append(draft)
             if i < len(drafts) - 1:
                 time.sleep(POST_DELAY_SEC)

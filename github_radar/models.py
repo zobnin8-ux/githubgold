@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 
@@ -100,3 +101,4 @@ class PostDraft:
     message_id: Optional[int] = None
     published_at: Optional[datetime] = None
     is_weird: bool = False
+    telegram_card_path: Optional[Path] = None
