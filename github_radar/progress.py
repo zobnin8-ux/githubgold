@@ -68,8 +68,7 @@ class CycleProgress:
                 "current": 0,
                 "total": 0,
                 "detail": "",
-                "telegram_card_mode": False,
-                "card_experiment_remaining": 0,
+                "telegram_card_mode": True,
                 "started_at": datetime.now(timezone.utc).isoformat(),
             }
         )
@@ -82,7 +81,6 @@ class CycleProgress:
         total: int = 0,
         detail: str = "",
         telegram_card_mode: bool | None = None,
-        card_experiment_remaining: int | None = None,
     ) -> None:
         data = read(self.path) or {}
         if data.get("status") not in ("running", None):
@@ -94,14 +92,11 @@ class CycleProgress:
             "current": current,
             "total": total,
             "detail": detail[:120],
-            "telegram_card_mode": data.get("telegram_card_mode", False),
-            "card_experiment_remaining": data.get("card_experiment_remaining", 0),
+            "telegram_card_mode": data.get("telegram_card_mode", True),
             "started_at": data.get("started_at"),
         }
         if telegram_card_mode is not None:
             payload["telegram_card_mode"] = telegram_card_mode
-        if card_experiment_remaining is not None:
-            payload["card_experiment_remaining"] = card_experiment_remaining
         self._write(payload)
 
     def done(self, *, published: int = 0, detail: str = "") -> None:
@@ -114,8 +109,7 @@ class CycleProgress:
                 "current": published,
                 "total": published,
                 "detail": detail,
-                "telegram_card_mode": prev.get("telegram_card_mode", False),
-                "card_experiment_remaining": prev.get("card_experiment_remaining", 0),
+                "telegram_card_mode": prev.get("telegram_card_mode", True),
             }
         )
 
@@ -138,8 +132,7 @@ class CycleProgress:
                 "current": 0,
                 "total": 0,
                 "detail": "",
-                "telegram_card_mode": False,
-                "card_experiment_remaining": 0,
+                "telegram_card_mode": True,
             }
         )
 
@@ -161,7 +154,6 @@ def update(
     total: int = 0,
     detail: str = "",
     telegram_card_mode: bool | None = None,
-    card_experiment_remaining: int | None = None,
 ) -> None:
     if _active is not None:
         _active.update(
@@ -170,7 +162,6 @@ def update(
             total=total,
             detail=detail,
             telegram_card_mode=telegram_card_mode,
-            card_experiment_remaining=card_experiment_remaining,
         )
 
 
@@ -227,8 +218,7 @@ def format_telegram(data: dict[str, Any], *, title: str | None = None) -> str:
     total = int(data.get("total") or 0)
     detail = str(data.get("detail") or "")
     dry = data.get("dry_run", False)
-    card_mode = bool(data.get("telegram_card_mode"))
-    exp_left = int(data.get("card_experiment_remaining") or 0)
+    card_mode = bool(data.get("telegram_card_mode", True))
     phase_order = CARD_PHASES if card_mode else PHASES
 
     if status == "idle" or not data:
@@ -242,7 +232,7 @@ def format_telegram(data: dict[str, Any], *, title: str | None = None) -> str:
         elif dry:
             title = "🔄 Dry-run"
         elif card_mode:
-            title = f"🔄 Боевой цикл · карточки ({exp_left} ост.)"
+            title = "🔄 Боевой цикл · карточки"
         else:
             title = "🔄 Боевой цикл"
 

@@ -59,7 +59,7 @@ HELP_TEXT = """🏆 Золото GitHub — команды
 /stopall — полная остановка: main, все боты, все lock-файлы
 /help или /commands — этот список
 
-Автопостинг: Task Scheduler ~3 раза в сутки (9 постов/день)."""
+Автопостинг: Task Scheduler 4 раза в сутки (карточки в Telegram)."""
 
 _cycle_lock = threading.Lock()
 _cycle_running = False
@@ -124,10 +124,10 @@ def _build_status(config: Config) -> str:
         "",
         f"Постов сегодня: {len(today)}",
         f"Всего в базе: {total}",
-        f"За запуск: до {config.posts_per_run} постов",
+        f"За запуск: до {config.posts_per_run} карточек",
         f"Канал: {config.telegram_channel_id}",
         f"Звёзды: >= {config.min_stars}",
-        f"Режим: ~9 постов/день (Task Scheduler)",
+        f"Режим: карточки · ~{config.posts_per_run * 4} шт/день (4 запуска)",
     ]
     return "\n".join(lines)
 

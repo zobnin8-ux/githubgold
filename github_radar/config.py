@@ -163,7 +163,8 @@ class Config:
     weird_accent: str
     weird_badge: str
     weird_topics: list[str]
-    telegram_card_experiment: int
+    telegram_card_mode: bool
+    telegram_classic_posts: bool
 
     @property
     def timezone(self) -> ZoneInfo:
@@ -216,7 +217,8 @@ ENV_KNOWN: frozenset[str] = frozenset(
         "MAKE_SLIDES",
         "SLIDE_FORMATS",
         "SLIDE_DIR",
-        "TELEGRAM_CARD_EXPERIMENT",
+        "TELEGRAM_CARD_MODE",
+        "TELEGRAM_CLASSIC_POSTS",
         "TIMEZONE",
         "TEMPLATES_DIR",
         "BRAND_NAME",
@@ -238,6 +240,7 @@ ENV_DEPRECATED: dict[str, str] = {
     "EXCLUDE_LISTS": "removed in v5 — no effect",
     "STRICT_TOOLS_ONLY": "renamed to STRICT_NO_LIBS in v5",
     "TELEGRAM_CHANNEL": "use TELEGRAM_CHANNEL_ID",
+    "TELEGRAM_CARD_EXPERIMENT": "removed — use TELEGRAM_CARD_MODE=true (default)",
 }
 
 
@@ -350,9 +353,8 @@ def load_config(env_path: str | Path | None = None) -> Config:
         weird_accent=os.getenv("WEIRD_ACCENT", "#FF3D9A").strip(),
         weird_badge=os.getenv("WEIRD_BADGE", "ДИЧЬ").strip(),
         weird_topics=weird_topics,
-        telegram_card_experiment=max(
-            0, int(os.getenv("TELEGRAM_CARD_EXPERIMENT", "0"))
-        ),
+        telegram_card_mode=_bool(os.getenv("TELEGRAM_CARD_MODE"), default=True),
+        telegram_classic_posts=_bool(os.getenv("TELEGRAM_CLASSIC_POSTS"), default=False),
     )
 
 

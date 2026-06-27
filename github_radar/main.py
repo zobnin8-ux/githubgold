@@ -276,24 +276,10 @@ def run_cycle(dry_run: bool = False) -> int:
             if fresh:
                 draft.repo = fresh
 
-        from github_radar.card_experiment import CardExperiment, notify_experiment_finished
-
-        card_experiment = CardExperiment(
-            config.db_path.parent,
-            initial=config.telegram_card_experiment,
-        )
-        card_mode = card_experiment.active
-        experiment_finished = False
-        skipped_qa = 0
-        if card_mode:
-            logger.info(
-                "Telegram card experiment: %d carousel post(s) remaining",
-                card_experiment.remaining,
-            )
-
         publisher = Publisher(config, storage)
+        skipped_qa = 0
         try:
-            if card_mode:
+            if config.telegram_card_mode:
                 from github_radar.card_qa import CardQAError
                 from github_radar.slides import SlideRenderer
 
@@ -301,10 +287,7 @@ def run_cycle(dry_run: bool = False) -> int:
                     d for d in drafts if not storage.is_published(d.repo.id)
                 ]
                 render_total = max(len(pending), 1)
-                card_ctx = {
-                    "telegram_card_mode": True,
-                    "card_experiment_remaining": card_experiment.remaining,
-                }
+                card_ctx = {"telegram_card_mode": True}
 
                 renderer = SlideRenderer(config)
                 ready: list = []
@@ -356,11 +339,6 @@ def run_cycle(dry_run: bool = False) -> int:
                     telegram_card_mode=True,
                     progress_phase="card_publish",
                 )
-                for _ in published:
-                    remaining, finished = card_experiment.record_publish()
-                    card_ctx["card_experiment_remaining"] = remaining
-                    if finished:
-                        experiment_finished = True
 
                 if config.make_slides and published:
                     reel_formats = [
@@ -402,11 +380,13 @@ def run_cycle(dry_run: bool = False) -> int:
                         finally:
                             renderer.close()
 
-                if experiment_finished:
-                    notify_experiment_finished(config)
-            else:
+                logger.info("Cycle complete: published %d card(s)", len(published))
+            elif config.telegram_classic_posts:
+                logger.warning(
+                    "Classic Telegram posts (TELEGRAM_CLASSIC_POSTS=true) — muted path"
+                )
                 published = publisher.publish_all(drafts)
-                logger.info("Cycle complete: published %d posts", len(published))
+                logger.info("Cycle complete: published %d classic posts", len(published))
 
                 if config.make_slides and published:
                     from github_radar.slides import SlideRenderer
@@ -417,16 +397,18 @@ def run_cycle(dry_run: bool = False) -> int:
                         logger.info("Saved %d card(s) to disk", len(paths))
                     finally:
                         renderer.close()
+            else:
+                logger.error(
+                    "No Telegram publish mode: set TELEGRAM_CARD_MODE=true (default)"
+                )
+                prog.error("Не выбран режим публикации в Telegram")
+                return 0
 
-            if card_mode:
-                logger.info("Cycle complete: published %d posts (card mode)", len(published))
-
-            detail = f"Постов: {len(published)}"
-            if card_mode:
-                left = card_experiment.remaining
-                detail += f" (эксп. карточек: осталось {left})"
-                if skipped_qa:
-                    detail += f", QA пропуск: {skipped_qa}"
+            detail = f"Карточек: {len(published)}"
+            if config.telegram_classic_posts and not config.telegram_card_mode:
+                detail = f"Постов: {len(published)}"
+            if skipped_qa:
+                detail += f", QA пропуск: {skipped_qa}"
             prog.done(published=len(published), detail=detail)
             return len(published)
         finally:

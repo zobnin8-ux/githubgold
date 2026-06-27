@@ -11,6 +11,7 @@ aliases:
   - treasure
 status: active
 repo: https://github.com/zobnin8-ux/githubgold
+updated: 2026-06-26
 ---
 
 # Золото GitHub
@@ -100,6 +101,20 @@ python scripts/render_weird_sample.py   # сэмпл карты → _samples/
 - Бейдж: **★ ДИЧЬ** — заливка `#FF3D9A`, белый текст, наклон −6°
 - Акцент: розовый вместо золотого/фиолетового
 - Фон/рамка/лого — как у коллекции
+
+---
+
+## Telegram: карточки vs классика
+
+#telegram #карточки
+
+| Режим | Env | Что уходит в канал |
+|-------|-----|-------------------|
+| **Карточка (default)** | `TELEGRAM_CARD_MODE=true` | PNG 1080×1350 через Playwright + CARD QA |
+| Классика | `TELEGRAM_CARD_MODE=false` | Текст поста + README-скрин / OG |
+
+- Прогресс-бар в админ-боте: фазы `CARD_PHASES` vs `PHASES` (`progress.py`)
+- Legacy: `card_experiment.py` — старый A/B-счётчик; заменён на постоянный флаг
 
 ---
 

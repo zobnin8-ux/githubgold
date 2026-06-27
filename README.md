@@ -154,6 +154,7 @@ treasure/
 │   ├── weird.py             # дичь: резерв, судья, слот
 │   ├── grounding.py         # правила README-only
 │   ├── card_qa.py           # QA перед сохранением PNG
+│   ├── card_experiment.py   # legacy A/B counter (unused)
 │   ├── publisher.py
 │   ├── slides.py            # Playwright
 │   ├── storage.py           # published + weird_reserve
@@ -207,6 +208,7 @@ ANTHROPIC_API_KEY=
 | `WEIRD_PER_DAY` | `1` | Джокеров в сутки |
 | `MAKE_SLIDES` | `true` | Рендер карточек после постинга |
 | `SLIDE_FORMATS` | `carousel,reels` | Форматы |
+| `TELEGRAM_CARD_MODE` | `true` | Пост в Telegram как PNG-карточка (Playwright); `false` — классический текст+фото |
 | `TIMEZONE` | `Europe/Moscow` | Папки слайдов, «посты сегодня» |
 
 Полный список — `.env.example`.
@@ -243,6 +245,12 @@ powershell -ExecutionPolicy Bypass -File scripts\setup_shortcut.ps1
 | `/status` | Посты сегодня, прогресс |
 | `/today` | Что вышло сегодня |
 | `/stats` | Всего в базе |
+
+### Формат поста в Telegram
+
+По умолчанию **`TELEGRAM_CARD_MODE=true`**: канал получает **PNG-коллекционную карточку** (1080×1350), а не длинный текст. Рендер — Playwright (`slides.py`), QA — `card_qa.py`. Классический режим (текст + README-скрин) — `TELEGRAM_CARD_MODE=false`.
+
+> `github_radar/card_experiment.py` — legacy-счётчик A/B; заменён на постоянный `TELEGRAM_CARD_MODE`. Переменная `TELEGRAM_CARD_EXPERIMENT` удалена.
 
 ---
 

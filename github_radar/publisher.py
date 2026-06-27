@@ -50,7 +50,7 @@ def _truncate_text(text: str, max_len: int) -> str:
 
 
 def build_short_caption(draft: PostDraft) -> str:
-    """One-line hook + GitHub link (Telegram card experiment)."""
+    """One-line hook + GitHub link (Telegram card publish)."""
     line = (draft.slide_headline or draft.slide_body or draft.text_ru).strip()
     line = _truncate_text(_escape(line), 200)
     prefix = "🃏 <b>Дичь дня</b>\n\n" if draft.is_weird else ""
@@ -182,6 +182,7 @@ class Publisher:
             caption = build_short_caption(draft)
             message_id = self._send_photo_file(chat_id, card_path, caption)
         else:
+            # Classic README+text posts (muted — set TELEGRAM_CLASSIC_POSTS=true to enable).
             caption = build_caption(draft)
             og_url = self._og_image_url(repo)
             readme_image = draft.image_url

@@ -1,4 +1,4 @@
-"""Telegram carousel-only experiment counter (persisted in data/)."""
+"""Legacy experiment counter — unused; cards are the default Telegram format."""
 
 from __future__ import annotations
 
